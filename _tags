@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 1ae28b9a02ee98a349a0c28a0fce9fdc)
+# DO NOT EDIT (digest: e031bbff935ae28548dce67c389fa762)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -123,8 +123,9 @@
 <unix/*.ml{,i}>: use_udpv4
 <unix/*.ml{,i}>: use_udpv4-socket
 # OASIS_STOP
-true: annot, bin_annot, principal, strict_sequence, debug
+true: annot, bin_annot, principal, strict_sequence, debug, warn(A-4-44)
 <tcp/pcb.ml>: pkg_cstruct.syntax
 <lib/wire_structs.ml>: pkg_cstruct.syntax
 <lib/arpv4.ml>: pkg_cstruct.syntax
 <dhcp/dhcp_clientv4.ml>: pkg_cstruct.syntax
+<tcp/options.ml>: pkg_sexplib.syntax

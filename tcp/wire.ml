@@ -50,6 +50,12 @@ type id = {
   local_ip: Ipaddr.V4.t;        (* Local IP address *)
 }
 
+let path_of_id { dest_port; dest_ip; local_port; local_ip } =
+  [ Ipaddr.V4.to_string local_ip;
+    string_of_int local_port;
+    Ipaddr.V4.to_string dest_ip;
+    string_of_int dest_port; ]
+
 module Make (Ipv4:V1_LWT.IPV4) = struct
   (* Output a general TCP packet, checksum it, and if a reference is provided,
      also record the sent packet for retranmission purposes *)

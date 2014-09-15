@@ -25,6 +25,8 @@ type id = {
   local_ip: Ipaddr.V4.t;        (* Local IP address *)
 }
 
+val path_of_id: id -> string list
+
 module Make(Ipv4:V1_LWT.IPV4) : sig
   val xmit : ip:Ipv4.t -> id:id ->
     ?rst:bool -> ?syn:bool -> ?fin:bool -> ?psh:bool ->

@@ -28,6 +28,32 @@ cstruct pseudo_header {
     uint16_t len
   } as big_endian
 
+(* FIXME more generic way to proxy connections *)
+type mode =
+  [ `Fast_start_proxy
+  | `Fast_start_app
+  | `Normal ]
+
+let mode: mode ref = ref `Normal
+
+module KV: sig
+  type reader = string -> string option Lwt.t
+  type writer = string -> string -> unit Lwt.t
+  val set: reader * writer -> unit
+  val read: reader
+  val write: writer
+end = struct
+  type reader = string -> string option Lwt.t
+  type writer = string -> string -> unit Lwt.t
+  let reader = ref (fun _ -> failwith "Reader not set")
+  let writer = ref (fun _ _ -> failwith "Writer not set")
+  let set (r, w) =
+    reader := r;
+    writer := w
+  let read x = !reader x
+  let write x y = !writer x y
+end
+
 module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM) =
 struct
 
@@ -279,6 +305,23 @@ struct
       rx_wnd: int;
       rx_wnd_scaleoffer: int }
 
+  let write_params _t id params =
+    let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
+      params
+    in
+    let path = String.concat "/" (Wire.path_of_id id) in
+    let write k v = KV.write (Filename.concat path k) v in
+    write "tx_wnd" (string_of_int tx_wnd) >>= fun () ->
+    write "sequence" (Int32.to_string sequence) >>= fun () ->
+    write "options" (Options.to_string options) >>= fun () ->
+    write "tx_isn" (Sequence.to_string tx_isn) >>= fun () ->
+    write "rx_wnd" (string_of_int rx_wnd) >>= fun () ->
+    write "rx_wnd_scaleoffer" (string_of_int rx_wnd_scaleoffer) >>= fun () ->
+    return_unit
+
+(*  let read_params _t _id _params =
+    (* TODO *) return_unit *)
+
   let new_pcb t params id =
     let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
       params
@@ -344,10 +387,21 @@ struct
     STATE.tick pcb.state State.Passive_open;
     STATE.tick pcb.state (State.Send_synack params.tx_isn);
     (* Add the PCB to our listens table *)
-    Hashtbl.replace t.listens id (params.tx_isn, (pushf, (pcb, th)));
+    begin if !mode = `Fast_start_proxy then
+        (* Save the connection parameter to let the app retrieve them. *)
+        write_params t id params
+      else (
+        Hashtbl.replace t.listens id (params.tx_isn, (pushf, (pcb, th)));
+        return_unit
+      )
+    end >>= fun () ->
     (* Queue a SYN ACK for transmission *)
-    let options = Options.MSS 1460 :: opts in
-    TXS.output ~flags:Segment.Syn ~options pcb.txq [] >>= fun () ->
+    begin if !mode = `Fast_start_app then (
+        (* SYN has already been sent by the proxy, don't resend it *)
+        let options = Options.MSS 1460 :: opts in
+        TXS.output ~flags:Segment.Syn ~options pcb.txq []
+      ) else return_unit
+    end >>= fun () ->
     return (pcb, th)
 
   let new_client_connection t params id ack_number =

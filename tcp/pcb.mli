@@ -14,6 +14,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+module KV: sig
+  type reader = string -> string option Lwt.t
+  type writer = string -> string -> unit Lwt.t
+  val set: reader * writer -> unit
+  val read: reader
+  val write: writer
+end
+
 module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM) : sig
 
   (** Overall state of the TCP stack *)
