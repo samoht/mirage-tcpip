@@ -305,7 +305,7 @@ struct
       rx_wnd: int;
       rx_wnd_scaleoffer: int }
 
-  let write_params _t id params =
+  let write_syn_cookies _t id params =
     let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
       params
     in
@@ -319,7 +319,7 @@ struct
     write "rx_wnd_scaleoffer" (string_of_int rx_wnd_scaleoffer) >>= fun () ->
     return_unit
 
-  let read_params _t id =
+  let read_syn_cookies _t id =
     let path = String.concat "/" (Wire.path_of_id id) in
     let read k = KV.read (Filename.concat path k) in
     let (>>|) x f =
@@ -412,7 +412,7 @@ struct
     begin if !mode = `Fast_start_proxy then
         (* If running in `fast-start` proxy mode, simply hand over the
            connection parameters to the app. *)
-        write_params t id params
+        write_syn_cookies t id params
       else (
         Hashtbl.replace t.listens id (params.tx_isn, (pushf, (pcb, th)));
         return_unit
@@ -508,7 +508,7 @@ struct
     match listeners id.Wire.local_port with
     | None -> return_unit
     | Some pushf ->
-      read_params t id >>= function
+      read_syn_cookies t id >>= function
       | Some params ->
         new_server_connection t params id pushf >>= fun _ -> return_unit
       | None ->
