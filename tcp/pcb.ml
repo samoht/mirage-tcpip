@@ -420,7 +420,7 @@ struct
     end >>= fun () ->
     (* Queue a SYN ACK for transmission *)
     begin if !mode = `Fast_start_app then
-        (* If running in `fast-start` app mode, the SYN has already
+        (* If running in `fast-start` app mode, the SYN/ACK has already
            been sent by the proxy, so don't resend it *)
         return_unit
       else (
