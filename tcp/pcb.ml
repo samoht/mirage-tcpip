@@ -410,7 +410,8 @@ struct
     STATE.tick pcb.state (State.Send_synack params.tx_isn);
     (* Add the PCB to our listens table *)
     begin if !mode = `Fast_start_proxy then
-        (* Save the connection parameter to let the app retrieve them. *)
+        (* If running in `fast-start` proxy mode, simply hand over the
+           connection parameters to the app. *)
         write_params t id params
       else (
         Hashtbl.replace t.listens id (params.tx_isn, (pushf, (pcb, th)));
@@ -418,11 +419,14 @@ struct
       )
     end >>= fun () ->
     (* Queue a SYN ACK for transmission *)
-    begin if !mode = `Fast_start_app then (
-        (* SYN has already been sent by the proxy, don't resend it *)
+    begin if !mode = `Fast_start_app then
+        (* If running in `fast-start` app mode, the SYN has already
+           been sent by the proxy, so don't resend it *)
+        return_unit
+      else (
         let options = Options.MSS 1460 :: opts in
         TXS.output ~flags:Segment.Syn ~options pcb.txq []
-      ) else return_unit
+      )
     end >>= fun () ->
     return (pcb, th)
 
@@ -571,6 +575,10 @@ struct
         dest_port       = source_port }
     in
     begin
+      (* If running in `fast-start` app mode, first load any SYN
+         cookie related to that id. We might want to pre-fetch the
+         cookies by watching the xenstore tree, but let's not be too
+         clever first. *)
       if !mode = `Fast_start_app then process_syn_cookie t id ~listeners
       else return_unit
     end >>= fun () ->
