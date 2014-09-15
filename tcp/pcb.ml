@@ -35,6 +35,7 @@ type mode =
   | `Normal ]
 
 let mode: mode ref = ref `Normal
+let set_mode x = mode := x
 
 module KV: sig
   type reader = string -> string option Lwt.t

@@ -22,6 +22,8 @@ module KV: sig
   val write: writer
 end
 
+val set_mode: [ `Fast_start_proxy | `Fast_start_app | `Normal ] -> unit
+
 module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM) : sig
 
   (** Overall state of the TCP stack *)
