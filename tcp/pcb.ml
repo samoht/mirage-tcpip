@@ -504,17 +504,16 @@ struct
     | None ->
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
-  let process_syn_cookie t id ~listeners =
+  let process_syn_cookies t id ~listeners =
     match listeners id.Wire.local_port with
     | None -> return_unit
     | Some pushf ->
       read_params t id >>= function
       | Some params ->
-        new_server_connection t params id pushf
-        >>= fun _ -> return_unit
+        new_server_connection t params id pushf >>= fun _ -> return_unit
       | None ->
-        printf "No SYN cookie for %s.\n"
-          (String.concat "/" (Wire.path_of_id id));
+        let id = String.concat "/" (Wire.path_of_id id) in
+        printf "No SYN cookies for %s.\n" id;
         return_unit
         >>= fun _ -> return_unit
 
@@ -576,10 +575,10 @@ struct
     in
     begin
       (* If running in `fast-start` app mode, first load any SYN
-         cookie related to that id. We might want to pre-fetch the
+         cookies related to that id. We might want to pre-fetch the
          cookies by watching the xenstore tree, but let's not be too
          clever first. *)
-      if !mode = `Fast_start_app then process_syn_cookie t id ~listeners
+      if !mode = `Fast_start_app then process_syn_cookies t id ~listeners
       else return_unit
     end >>= fun () ->
     (* Lookup connection from the active PCB hash *)
