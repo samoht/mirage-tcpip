@@ -319,8 +319,30 @@ struct
     write "rx_wnd_scaleoffer" (string_of_int rx_wnd_scaleoffer) >>= fun () ->
     return_unit
 
-(*  let read_params _t _id _params =
-    (* TODO *) return_unit *)
+  let read_params _t id =
+    let path = String.concat "/" (Wire.path_of_id id) in
+    let read k = KV.read (Filename.concat path k) in
+    let (>>|) x f =
+      x >>= function
+      | None   -> return_none
+      | Some x -> f x in
+    read "tx_wnd"   >>| fun tx_wnd ->
+    read "sequence" >>| fun sequence ->
+    read "options"  >>| fun options ->
+    read "tx_isn"   >>| fun tx_isn ->
+    read "rx_wnd"   >>| fun rx_wnd ->
+    read "rx_wnd_scaleoffer" >>| fun rx_wnd_scaleoffer ->
+    try
+      let tx_wnd = int_of_string tx_wnd in
+      let sequence = Int32.of_string sequence in
+      let options = Options.of_string options in
+      let tx_isn = Sequence.of_string tx_isn in
+      let rx_wnd = int_of_string rx_wnd in
+      let rx_wnd_scaleoffer = int_of_string rx_wnd_scaleoffer in
+      return
+        (Some { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer })
+    with Failure _ ->
+      return_none
 
   let new_pcb t params id =
     let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
@@ -461,7 +483,8 @@ struct
          - send RST *)
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
-  let process_syn t id ~listeners ~pkt ~ack_number ~sequence ~options ~syn ~fin =
+  let process_syn t id ~listeners ~pkt ~ack_number ~sequence ~options ~syn ~fin
+    =
     match listeners id.Wire.local_port with
     | Some pushf ->
       let tx_isn = Sequence.of_int ((Random.int 65535) + 0x1AFE0000) in
@@ -476,6 +499,20 @@ struct
       return_unit
     | None ->
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
+
+  let process_syn_cookie t id ~listeners =
+    match listeners id.Wire.local_port with
+    | None -> return_unit
+    | Some pushf ->
+      read_params t id >>= function
+      | Some params ->
+        new_server_connection t params id pushf
+        >>= fun _ -> return_unit
+      | None ->
+        printf "No SYN cookie for %s.\n"
+          (String.concat "/" (Wire.path_of_id id));
+        return_unit
+        >>= fun _ -> return_unit
 
   let process_ack t id ~pkt ~ack_number ~sequence ~syn ~fin =
     match hashtbl_find t.listens id with
@@ -533,6 +570,10 @@ struct
         local_ip        = dst;
         dest_port       = source_port }
     in
+    begin
+      if !mode = `Fast_start_app then process_syn_cookie t id ~listeners
+      else return_unit
+    end >>= fun () ->
     (* Lookup connection from the active PCB hash *)
     with_hashtbl t.channels id
       (* PCB exists, so continue the connection state machine in tcp_input *)
