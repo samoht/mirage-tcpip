@@ -40,19 +40,25 @@ let set_mode x = mode := x
 module KV: sig
   type reader = string -> string option Lwt.t
   type writer = string -> string -> unit Lwt.t
-  val set: reader * writer -> unit
+  type remover = string -> unit Lwt.t
+  val set: reader -> writer -> remover -> unit
   val read: reader
   val write: writer
+  val remove: remover
 end = struct
   type reader = string -> string option Lwt.t
   type writer = string -> string -> unit Lwt.t
+  type remover = string -> unit Lwt.t
   let reader = ref (fun _ -> failwith "Reader not set")
   let writer = ref (fun _ _ -> failwith "Writer not set")
-  let set (r, w) =
-    reader := r;
-    writer := w
+  let remover = ref (fun _ -> failwith "Remover not set")
+  let set re wr rm =
+    reader := re;
+    writer := wr;
+    remover := rm
   let read x = !reader x
   let write x y = !writer x y
+  let remove x = !remover x
 end
 
 module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM) =
@@ -155,7 +161,7 @@ struct
         UTX.wait_for_flushed pcb.utx >>= fun () ->
         (let { wnd; _ } = pcb in
          STATE.tick pcb.state (State.Send_fin (Window.tx_nxt wnd));
-         TXS.output ~flags:Segment.Fin pcb.txq []
+         TXS.output ~flags:Segment.Fin pcb.txq `Normal []
         )
       | _ -> return_unit
 
@@ -321,29 +327,38 @@ struct
     return_unit
 
   let read_syn_cookies _t id =
+    printf "Reading SYN cookie for %s\n"
+      (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     let path = String.concat "/" (Wire.path_of_id id) in
-    let read k = KV.read (Filename.concat path k) in
-    let (>>|) x f =
-      x >>= function
-      | None   -> return_none
-      | Some x -> f x in
-    read "tx_wnd"   >>| fun tx_wnd ->
-    read "sequence" >>| fun sequence ->
-    read "options"  >>| fun options ->
-    read "tx_isn"   >>| fun tx_isn ->
-    read "rx_wnd"   >>| fun rx_wnd ->
-    read "rx_wnd_scaleoffer" >>| fun rx_wnd_scaleoffer ->
-    try
-      let tx_wnd = int_of_string tx_wnd in
-      let sequence = Int32.of_string sequence in
-      let options = Options.of_string options in
-      let tx_isn = Sequence.of_string tx_isn in
-      let rx_wnd = int_of_string rx_wnd in
-      let rx_wnd_scaleoffer = int_of_string rx_wnd_scaleoffer in
-      return
-        (Some { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer })
-    with Failure _ ->
-      return_none
+    KV.read path >>= function
+    | None   -> return_none
+    | Some _ ->
+      (* XXX: use a transaction *)
+      let read k = KV.read (Filename.concat path k) in
+      let (>>|) x f =
+        x >>= function
+        | None   -> return_none
+        | Some x -> f x in
+      read "tx_wnd"   >>| fun tx_wnd ->
+      read "sequence" >>| fun sequence ->
+      read "options"  >>| fun options ->
+      read "tx_isn"   >>| fun tx_isn ->
+      read "rx_wnd"   >>| fun rx_wnd ->
+      read "rx_wnd_scaleoffer" >>| fun rx_wnd_scaleoffer ->
+      KV.remove path >>= fun () ->
+      printf "read_syn_cookies: 1/2\n";
+      try
+        let tx_wnd = int_of_string tx_wnd in
+        let sequence = Int32.of_string sequence in
+        let options = Options.of_string options in
+        let tx_isn = Sequence.of_string tx_isn in
+        let rx_wnd = int_of_string rx_wnd in
+        let rx_wnd_scaleoffer = int_of_string rx_wnd_scaleoffer in
+      printf "read_syn_cookies: 2/2\n";
+        return
+          (Some { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer })
+      with Failure _ ->
+        return_none
 
   let new_pcb t params id =
     let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
@@ -410,25 +425,21 @@ struct
     STATE.tick pcb.state State.Passive_open;
     STATE.tick pcb.state (State.Send_synack params.tx_isn);
     (* Add the PCB to our listens table *)
-    begin if !mode = `Fast_start_proxy then
+    begin if !mode = `Fast_start_proxy then (
+        printf
+          "Proxy in fast-start mode, writing the SYN parameters in \
+           xenstore ...\n";
         (* If running in `fast-start` proxy mode, simply hand over the
            connection parameters to the app. *)
         write_syn_cookies t id params
-      else (
+      ) else (
         Hashtbl.replace t.listens id (params.tx_isn, (pushf, (pcb, th)));
         return_unit
       )
     end >>= fun () ->
     (* Queue a SYN ACK for transmission *)
-    begin if !mode = `Fast_start_app then
-        (* If running in `fast-start` app mode, the SYN/ACK has already
-           been sent by the proxy, so don't resend it *)
-        return_unit
-      else (
-        let options = Options.MSS 1460 :: opts in
-        TXS.output ~flags:Segment.Syn ~options pcb.txq []
-      )
-    end >>= fun () ->
+    let options = Options.MSS 1460 :: opts in
+    TXS.output ~flags:Segment.Syn ~options pcb.txq !mode [] >>= fun () ->
     return (pcb, th)
 
   let new_client_connection t params id ack_number =
@@ -441,10 +452,11 @@ struct
     Hashtbl.add t.channels id (pcb, th);
     STATE.tick pcb.state (State.Recv_synack (Sequence.of_int32 ack_number));
     (* xmit ACK *)
-    TXS.output pcb.txq [] >>= fun () ->
+    TXS.output pcb.txq `Normal [] >>= fun () ->
     return (pcb, th)
 
   let process_reset t id =
+    printf "process_reset %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match hashtbl_find t.connects id with
     | Some (wakener, _) ->
       (* URG_TODO: check if RST ack num is valid before it is accepted *)
@@ -490,6 +502,7 @@ struct
 
   let process_syn t id ~listeners ~pkt ~ack_number ~sequence ~options ~syn ~fin
     =
+    printf "process_syn %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match listeners id.Wire.local_port with
     | Some pushf ->
       let tx_isn = Sequence.of_int ((Random.int 65535) + 0x1AFE0000) in
@@ -511,14 +524,17 @@ struct
     | Some pushf ->
       read_syn_cookies t id >>= function
       | Some params ->
+        printf "process SYN cookies for %s\n"
+          (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
         new_server_connection t params id pushf >>= fun _ -> return_unit
       | None ->
-        let id = String.concat "/" (Wire.path_of_id id) in
-        printf "No SYN cookies for %s.\n" id;
+        printf "No SYN cookies for %s.\n"
+          (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
         return_unit
         >>= fun _ -> return_unit
 
   let process_ack t id ~pkt ~ack_number ~sequence ~syn ~fin =
+    printf "process_ack %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match hashtbl_find t.listens id with
     | Some (tx_isn, (pushf, newconn)) ->
       if Sequence.(to_int32 (incr tx_isn)) = ack_number then (
@@ -566,6 +582,7 @@ struct
 
   (* Main input function for TCP packets *)
   let input t ~listeners ~src ~dst data =
+    printf "input\n";
     let source_port = Tcp_wire.get_tcpv4_src_port data in
     let dest_port = Tcp_wire.get_tcpv4_dst_port data in
     let id =

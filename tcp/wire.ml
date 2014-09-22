@@ -15,6 +15,7 @@
  *)
 
 open Lwt
+open Sexplib.Std
 
 module Tcp_wire = Wire_structs.Tcp_wire
 
@@ -48,7 +49,7 @@ type id = {
   dest_ip: Ipaddr.V4.t;         (* Remote IP address *)
   local_port: int;              (* Local TCP port *)
   local_ip: Ipaddr.V4.t;        (* Local IP address *)
-}
+} with sexp
 
 let path_of_id { dest_port; dest_ip; local_port; local_ip } =
   [ Ipaddr.V4.to_string local_ip;

@@ -55,3 +55,6 @@ val query: t -> Ipaddr.V4.t -> Macaddr.t Lwt.t
 
 (** Prettyprint cache contents *)
 val prettyprint: t -> unit
+
+val enable_promiscuous_mode: unit -> unit
+val disable_promiscuous_mode: unit -> unit

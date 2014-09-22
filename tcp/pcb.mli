@@ -17,9 +17,11 @@
 module KV: sig
   type reader = string -> string option Lwt.t
   type writer = string -> string -> unit Lwt.t
-  val set: reader * writer -> unit
+  type remover = string -> unit Lwt.t
+  val set: reader -> writer -> remover -> unit
   val read: reader
   val write: writer
+  val remove: remover
 end
 
 val set_mode: [ `Fast_start_proxy | `Fast_start_app | `Normal ] -> unit

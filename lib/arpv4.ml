@@ -37,6 +37,7 @@ type t = {
   get_mac: unit -> Macaddr.t;
   cache: (Ipaddr.V4.t, entry) Hashtbl.t;
   mutable bound_ips: Ipaddr.V4.t list;
+  mutable promiscuous: bool;
 }
 
 cstruct arp {
@@ -79,8 +80,9 @@ let rec input t frame =
        our own IPv4 list *)
     let req_ipv4 = Ipaddr.V4.of_int32 (get_arp_tpa frame) in
     (* printf "ARP: who-has %s?\n%!" (Ipaddr.V4.to_string req_ipv4); *)
-    if List.mem req_ipv4 t.bound_ips then begin
-      printf "ARP responding to: who-has %s?\n%!" (Ipaddr.V4.to_string req_ipv4);
+    if t.promiscuous || List.mem req_ipv4 t.bound_ips then begin
+      printf "ARP responding to: who-has %s (promiscuous=%b)?\n%!"
+        (Ipaddr.V4.to_string req_ipv4) t.promiscuous;
       (* We own this IP, so reply with our MAC *)
       let sha = t.get_mac () in
       let tha = Macaddr.of_bytes_exn (copy_arp_sha frame) in
@@ -193,7 +195,13 @@ let query t ip =
     Lwt_condition.wait cond
   )
 
+let promiscuous = ref false
+
+let enable_promiscuous_mode () = promiscuous := true
+let disable_promiscuous_mode () = promiscuous := false
+
 let create ~get_etherbuf ~output ~get_mac =
   let cache = Hashtbl.create 7 in
   let bound_ips = [] in
-  { output; get_mac; cache; bound_ips; get_etherbuf }
+  let promiscuous = !promiscuous in
+  { output; get_mac; cache; bound_ips; get_etherbuf; promiscuous }

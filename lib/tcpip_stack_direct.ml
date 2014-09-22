@@ -72,6 +72,7 @@ struct
   let tcpv4 { tcpv4; _ } = tcpv4
   let udpv4 { udpv4; _ } = udpv4
   let ipv4 { ipv4; _ } = ipv4
+  let ethif { ethif; _ } = ethif
 
   let listen_udpv4 t ~port callback =
     Hashtbl.replace t.udpv4_listeners port callback
@@ -108,9 +109,18 @@ struct
     try Some (Hashtbl.find t.udpv4_listeners dst_port)
     with Not_found -> None
 
+  let default_tcpv4_listeners t =
+    try
+      let res = Some (Hashtbl.find t.tcpv4_listeners (-1)) in
+      Printf.printf "Found a default tcp listener\n";
+      res
+    with Not_found ->
+      Printf.printf "No default tcp listener\n";
+      None
+
   let tcpv4_listeners t dst_port =
     try Some (Hashtbl.find t.tcpv4_listeners dst_port)
-    with Not_found -> None
+    with Not_found -> default_tcpv4_listeners t
 
   let listen t =
     Netif.listen t.netif (

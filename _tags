@@ -129,3 +129,4 @@ true: annot, bin_annot, principal, strict_sequence, debug, warn(A-4-44)
 <lib/arpv4.ml>: pkg_cstruct.syntax
 <dhcp/dhcp_clientv4.ml>: pkg_cstruct.syntax
 <tcp/options.ml>: pkg_sexplib.syntax
+<tcp/wire.ml{,i}>: pkg_sexplib.syntax
