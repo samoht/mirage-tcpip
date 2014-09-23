@@ -318,65 +318,71 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       (rx_wnd_scaleoffer, tx_f),
       (Options.Window_size_shift rx_wnd_scaleoffer :: [])
 
-  type pcb_params =
-    { tx_wnd: int;
-      sequence: int32;
-      options: Options.t list;
-      tx_isn: Sequence.t;
-      rx_wnd: int;
-      rx_wnd_scaleoffer: int }
+  module Syn = struct
 
-  let write_syn_cookies _t id params =
-    let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
-      params
-    in
-    let path = String.concat "/" (Wire.path_of_id id) in
-    let key k = Filename.concat path k in
-    KV.write [
-      key "tx_wnd"           , string_of_int tx_wnd;
-      key "sequence"         , Int32.to_string sequence;
-      key "options"          , Options.to_string options;
-      key "tx_isn"           , Sequence.to_string tx_isn;
-      key "rx_wnd"           , string_of_int rx_wnd;
-      key "rx_wnd_scaleoffer", string_of_int rx_wnd_scaleoffer
-    ]
+    type t =
+      { tx_wnd: int;
+        sequence: int32;
+        options: Options.t list;
+        tx_isn: Sequence.t;
+        rx_wnd: int;
+        rx_wnd_scaleoffer: int }
 
-  let read_syn_cookies _t id =
-    printf "Reading SYN cookie for %s\n"
-      (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
-    let path = String.concat "/" (Wire.path_of_id id) in
-    KV.read path >>= function
-    | None   -> return_none
-    | Some _ ->
-      (* XXX: use a transaction *)
-      let read k = KV.read (Filename.concat path k) in
-      let (>>|) x f =
-        x >>= function
-        | None   -> return_none
-        | Some x -> f x in
-      read "tx_wnd"   >>| fun tx_wnd ->
-      read "sequence" >>| fun sequence ->
-      read "options"  >>| fun options ->
-      read "tx_isn"   >>| fun tx_isn ->
-      read "rx_wnd"   >>| fun rx_wnd ->
-      read "rx_wnd_scaleoffer" >>| fun rx_wnd_scaleoffer ->
-      KV.remove path >>= fun () ->
-      printf "read_syn_cookies: 1/2\n";
-      try
-        let tx_wnd = int_of_string tx_wnd in
-        let sequence = Int32.of_string sequence in
-        let options = Options.of_string options in
-        let tx_isn = Sequence.of_string tx_isn in
-        let rx_wnd = int_of_string rx_wnd in
-        let rx_wnd_scaleoffer = int_of_string rx_wnd_scaleoffer in
-      printf "read_syn_cookies: 2/2\n";
-        return
-          (Some { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer })
-      with Failure _ ->
-        return_none
+    let path_of_id id = String.concat "/" (Wire.path_of_id id) ^ "/syn"
+
+    let write _t id params =
+      let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
+        params
+      in
+      let path = path_of_id id in
+      let key k = Filename.concat path k in
+      KV.write [
+        key "tx_wnd"           , string_of_int tx_wnd;
+        key "sequence"         , Int32.to_string sequence;
+        key "options"          , Options.to_string options;
+        key "tx_isn"           , Sequence.to_string tx_isn;
+        key "rx_wnd"           , string_of_int rx_wnd;
+        key "rx_wnd_scaleoffer", string_of_int rx_wnd_scaleoffer
+      ]
+
+    let read _t id =
+      printf "Reading SYN cookie for %s\n"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+      let path = path_of_id id in
+      KV.read path >>= function
+      | None   -> return_none
+      | Some _ ->
+        (* XXX: use a transaction *)
+        let read k = KV.read (Filename.concat path k) in
+        let (>>|) x f =
+          x >>= function
+          | None   -> return_none
+          | Some x -> f x in
+        read "tx_wnd"   >>| fun tx_wnd ->
+        read "sequence" >>| fun sequence ->
+        read "options"  >>| fun options ->
+        read "tx_isn"   >>| fun tx_isn ->
+        read "rx_wnd"   >>| fun rx_wnd ->
+        read "rx_wnd_scaleoffer" >>| fun rx_wnd_scaleoffer ->
+        KV.remove path >>= fun () ->
+        printf "read_syn_cookies: 1/2\n";
+        try
+          let tx_wnd = int_of_string tx_wnd in
+          let sequence = Int32.of_string sequence in
+          let options = Options.of_string options in
+          let tx_isn = Sequence.of_string tx_isn in
+          let rx_wnd = int_of_string rx_wnd in
+          let rx_wnd_scaleoffer = int_of_string rx_wnd_scaleoffer in
+          printf "read_syn_cookies: 2/2\n";
+          return
+            (Some { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer })
+        with Failure _ ->
+          return_none
+
+  end
 
   let new_pcb t params id =
-    let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
+    let { Syn.tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
       params
     in
     let tx_mss = List.fold_left (fun a ->
@@ -438,7 +444,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
   let new_server_connection t ~xmit params id pushf =
     new_pcb t params id >>= fun (pcb, th, opts) ->
     STATE.tick pcb.state State.Passive_open;
-    STATE.tick pcb.state (State.Send_synack params.tx_isn);
+    STATE.tick pcb.state (State.Send_synack params.Syn.tx_isn);
     (* Add the PCB to our listens table *)
     begin if !mode = `Fast_start_proxy then (
         let ip = Ipaddr.V4.to_string id.Wire.local_ip in
@@ -453,9 +459,9 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
              xenstore ...\n";
           (* If running in `fast-start` proxy mode, simply hand over the
              connection parameters to the app. *)
-          write_syn_cookies t id params
+          Syn.write t id params
       ) else (
-        Hashtbl.replace t.listens id (params.tx_isn, (pushf, (pcb, th)));
+        Hashtbl.replace t.listens id (params.Syn.tx_isn, (pushf, (pcb, th)));
         return_unit
       )
     end >>= fun () ->
@@ -466,8 +472,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     return_unit
 
   let new_client_connection t params id ack_number =
-    let tx_isn = params.tx_isn in
-    let params = { params with tx_isn = Sequence.incr tx_isn } in
+    let tx_isn = params.Syn.tx_isn in
+    let params = { params with Syn.tx_isn = Sequence.incr tx_isn } in
     new_pcb t params id >>= fun (pcb, th, _) ->
     (* A hack here because we create the pcb only after the SYN-ACK is rx-ed*)
     STATE.tick pcb.state (State.Send_syn tx_isn);
@@ -508,7 +514,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
            sent in the SYN *)
         let rx_wnd_scaleoffer = wscale_default in
         new_client_connection t
-          { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer }
+          { Syn.tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer }
           id ack_number
         >>= fun (pcb, th) ->
         Lwt.wakeup wakener (`Ok (pcb, th));
@@ -534,7 +540,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       let rx_wnd = 65535 in
       let rx_wnd_scaleoffer = wscale_default in
       new_server_connection t ~xmit:true
-        { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer }
+        { Syn.tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer }
         id pushf
       >>= fun () ->
       return_unit
@@ -547,7 +553,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     match t.listeners id.Wire.local_port with
     | None -> return_unit
     | Some pushf ->
-      read_syn_cookies t id >>= function
+      Syn.read t id >>= function
       | Some params ->
         printf "Found SYN cookies.\n";
         new_server_connection t ~xmit:false params id pushf >>= fun () ->
