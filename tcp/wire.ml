@@ -57,6 +57,15 @@ let path_of_id { dest_port; dest_ip; local_port; local_ip } =
     Ipaddr.V4.to_string dest_ip;
     string_of_int dest_port; ]
 
+let id_of_path = function
+  | [ local_ip; local_port; dest_ip; dest_port ] ->
+    let local_ip = Ipaddr.V4.of_string_exn local_ip in
+    let local_port = int_of_string local_port in
+    let dest_ip = Ipaddr.V4.of_string_exn dest_ip in
+    let dest_port = int_of_string dest_port in
+    { local_ip; local_port; dest_ip; dest_port }
+  | p -> failwith (Printf.sprintf "id_of_path: %s" (String.concat "/" p))
+
 module Make (Ipv4:V1_LWT.IPV4) = struct
   (* Output a general TCP packet, checksum it, and if a reference is provided,
      also record the sent packet for retranmission purposes *)

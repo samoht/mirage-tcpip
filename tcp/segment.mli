@@ -76,8 +76,7 @@ module Tx (Time:V1_LWT.TIME)(Clock:V1.CLOCK) : sig
 
   val output:
     ?flags:tx_flags -> ?options:Options.t list ->
-    t -> [`Normal|`Fast_start_app|`Fast_start_proxy] -> Cstruct.t list ->
-    unit Lwt.t
+    xmit:bool -> rexmit:bool -> t -> Cstruct.t list -> unit Lwt.t
   (** Queue a segment for transmission. May block if:
 
       {ul

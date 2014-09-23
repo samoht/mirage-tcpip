@@ -371,7 +371,7 @@ module Tx (Time:V1_LWT.TIME) (Clock:V1.CLOCK) = struct
      The transmitter should check that the segment size will
      will not be greater than the transmit window.
   *)
-  let output ?(flags=No_flags) ?(options=[]) q mode data =
+  let output ?(flags=No_flags) ?(options=[]) ~xmit ~rexmit q data =
     (* Transmit the packet to the wire
          TODO: deal with transmission soft/hard errors here RFC5461 *)
     let { wnd; _ } = q in
@@ -379,10 +379,9 @@ module Tx (Time:V1_LWT.TIME) (Clock:V1.CLOCK) = struct
     let seq = Window.tx_nxt wnd in
     let seg = { data; flags; seq } in
     let seq_len = len seg in
-    (* XXX: not sure that the proxy needs this *)
     TX.tx_advance q.wnd seq_len;
-    begin match mode with
-      | `Normal | `Fast_start_app ->
+    begin match rexmit with
+      | true ->
         (* Queue up segment just sent for retransmission if needed *)
         let q_rexmit () =
           match seq_len > 0 with
@@ -393,14 +392,13 @@ module Tx (Time:V1_LWT.TIME) (Clock:V1.CLOCK) = struct
             TT.start q.rexmit_timer ~p seg.seq
         in
         q_rexmit ()
-      | `Fast_start_proxy -> return_unit
-    end  >>= fun () ->
-    match mode with
-    | `Normal | `Fast_start_proxy ->
-      q.xmit ~flags ~wnd ~options ~seq data >>= fun _ ->
-      (* Inform the RX ack thread that we've just sent one *)
-      Lwt_mvar.put q.rx_ack ack
-    | `Fast_start_app ->
-      return_unit
+      | false -> return_unit
+    end >>= fun () ->
+    begin
+      if xmit then q.xmit ~flags ~wnd ~options ~seq data
+      else return_unit
+    end >>= fun () ->
+    (* Inform the RX ack thread that we've just sent one *)
+    Lwt_mvar.put q.rx_ack ack
 
 end

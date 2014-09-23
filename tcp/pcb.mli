@@ -15,13 +15,15 @@
  *)
 
 module KV: sig
-  type reader = string -> string option Lwt.t
-  type writer = string -> string -> unit Lwt.t
-  type remover = string -> unit Lwt.t
-  val set: reader -> writer -> remover -> unit
-  val read: reader
-  val write: writer
-  val remove: remover
+  module type S = sig
+    val read  : string -> string option Lwt.t
+    val write : (string * string) list -> unit Lwt.t
+    val remove: string -> unit Lwt.t
+    val watch : string -> unit Lwt.t
+    val directory: string -> string list Lwt.t
+  end
+  val set: (module S) -> unit
+  include S
 end
 
 val set_mode: [ `Fast_start_proxy | `Fast_start_app | `Normal ] -> unit
@@ -41,8 +43,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
 
   val ip : t -> Ipv4.t
 
-  val input: t -> listeners:(int -> (pcb -> unit Lwt.t) option)
-    -> src:Ipaddr.V4.t -> dst:Ipaddr.V4.t -> Cstruct.t -> unit Lwt.t
+  val input: t -> listeners:(int -> (pcb -> unit Lwt.t) option) ->
+    src:Ipaddr.V4.t -> dst:Ipaddr.V4.t -> Cstruct.t -> unit Lwt.t
 
   val connect: t -> dest_ip:Ipaddr.V4.t -> dest_port:int -> connection_result Lwt.t
 

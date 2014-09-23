@@ -38,31 +38,42 @@ let mode: mode ref = ref `Normal
 let set_mode x = mode := x
 
 module KV: sig
-  type reader = string -> string option Lwt.t
-  type writer = string -> string -> unit Lwt.t
-  type remover = string -> unit Lwt.t
-  val set: reader -> writer -> remover -> unit
-  val read: reader
-  val write: writer
-  val remove: remover
+  module type S = sig
+    val read  : string -> string option Lwt.t
+    val write : (string * string) list -> unit Lwt.t
+    val remove: string -> unit Lwt.t
+    val watch : string -> unit Lwt.t
+    val directory: string -> string list Lwt.t
+  end
+  val set: (module S) -> unit
+  include S
 end = struct
-  type reader = string -> string option Lwt.t
-  type writer = string -> string -> unit Lwt.t
-  type remover = string -> unit Lwt.t
-  let reader = ref (fun _ -> failwith "Reader not set")
-  let writer = ref (fun _ _ -> failwith "Writer not set")
-  let remover = ref (fun _ -> failwith "Remover not set")
-  let set re wr rm =
-    reader := re;
-    writer := wr;
-    remover := rm
-  let read x = !reader x
-  let write x y = !writer x y
-  let remove x = !remover x
+  module type S = sig
+    val read  : string -> string option Lwt.t
+    val write : (string * string) list -> unit Lwt.t
+    val remove: string -> unit Lwt.t
+    val watch : string -> unit Lwt.t
+    val directory: string -> string list Lwt.t
+  end
+  module D: S = struct
+    let not_set   = (fun _ -> failwith "Not set")
+    let read      = not_set
+    let write     = not_set
+    let remove    = not_set
+    let watch     = not_set
+    let directory = not_set
+  end
+  let t = ref (module D: S)
+  let set r = t := r
+  let read x = let (module M) = !t in M.read x
+  let write x = let (module M) = !t in M.write x
+  let remove x = let (module M) = !t in M.remove x
+  let watch x = let (module M) = !t in M.watch x
+  let directory x = let (module M) = !t in M.directory x
 end
 
-module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM) =
-struct
+module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM)
+= struct
 
   module RXS = Segment.Rx(Time)
   module TXS = Segment.Tx(Time)(Clock)
@@ -89,6 +100,7 @@ struct
   type connection_result = [ `Ok of connection | `Rst | `Timeout ]
 
   type t = {
+    mutable listeners: int -> (pcb -> unit Lwt.t) option;
     ip : Ipv4.t;
     mutable localport : int;
     channels: (Wire.id, connection) Hashtbl.t;
@@ -161,7 +173,7 @@ struct
         UTX.wait_for_flushed pcb.utx >>= fun () ->
         (let { wnd; _ } = pcb in
          STATE.tick pcb.state (State.Send_fin (Window.tx_nxt wnd));
-         TXS.output ~flags:Segment.Fin pcb.txq `Normal []
+         TXS.output ~flags:Segment.Fin pcb.txq ~xmit:true ~rexmit:true []
         )
       | _ -> return_unit
 
@@ -317,14 +329,15 @@ struct
       params
     in
     let path = String.concat "/" (Wire.path_of_id id) in
-    let write k v = KV.write (Filename.concat path k) v in
-    write "tx_wnd" (string_of_int tx_wnd) >>= fun () ->
-    write "sequence" (Int32.to_string sequence) >>= fun () ->
-    write "options" (Options.to_string options) >>= fun () ->
-    write "tx_isn" (Sequence.to_string tx_isn) >>= fun () ->
-    write "rx_wnd" (string_of_int rx_wnd) >>= fun () ->
-    write "rx_wnd_scaleoffer" (string_of_int rx_wnd_scaleoffer) >>= fun () ->
-    return_unit
+    let key k = Filename.concat path k in
+    KV.write [
+      key "tx_wnd"           , string_of_int tx_wnd;
+      key "sequence"         , Int32.to_string sequence;
+      key "options"          , Options.to_string options;
+      key "tx_isn"           , Sequence.to_string tx_isn;
+      key "rx_wnd"           , string_of_int rx_wnd;
+      key "rx_wnd_scaleoffer", string_of_int rx_wnd_scaleoffer
+    ]
 
   let read_syn_cookies _t id =
     printf "Reading SYN cookie for %s\n"
@@ -420,7 +433,7 @@ struct
     Gc.finalise fnth th;
     return (pcb, th, opts)
 
-  let new_server_connection t params id pushf =
+  let new_server_connection t ~xmit params id pushf =
     new_pcb t params id >>= fun (pcb, th, opts) ->
     STATE.tick pcb.state State.Passive_open;
     STATE.tick pcb.state (State.Send_synack params.tx_isn);
@@ -439,8 +452,9 @@ struct
     end >>= fun () ->
     (* Queue a SYN ACK for transmission *)
     let options = Options.MSS 1460 :: opts in
-    TXS.output ~flags:Segment.Syn ~options pcb.txq !mode [] >>= fun () ->
-    return (pcb, th)
+    let rexmit = !mode <> `Fast_start_proxy in
+    TXS.output ~flags:Segment.Syn ~options pcb.txq ~rexmit ~xmit [] >>= fun () ->
+    return_unit
 
   let new_client_connection t params id ack_number =
     let tx_isn = params.tx_isn in
@@ -452,7 +466,7 @@ struct
     Hashtbl.add t.channels id (pcb, th);
     STATE.tick pcb.state (State.Recv_synack (Sequence.of_int32 ack_number));
     (* xmit ACK *)
-    TXS.output pcb.txq `Normal [] >>= fun () ->
+    TXS.output pcb.txq ~xmit:true ~rexmit:true [] >>= fun () ->
     return (pcb, th)
 
   let process_reset t id =
@@ -500,33 +514,34 @@ struct
          - send RST *)
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
-  let process_syn t id ~listeners ~pkt ~ack_number ~sequence ~options ~syn ~fin
+  let process_syn t id ~pkt ~ack_number ~sequence ~options ~syn ~fin
     =
     printf "process_syn %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
-    match listeners id.Wire.local_port with
+    match t.listeners id.Wire.local_port with
     | Some pushf ->
       let tx_isn = Sequence.of_int ((Random.int 65535) + 0x1AFE0000) in
       let tx_wnd = Tcp_wire.get_tcpv4_window pkt in
       (* TODO: make this configurable per listener *)
       let rx_wnd = 65535 in
       let rx_wnd_scaleoffer = wscale_default in
-      new_server_connection t
+      new_server_connection t ~xmit:true
         { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer }
         id pushf
-      >>= fun _ ->
+      >>= fun () ->
       return_unit
     | None ->
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
-  let process_syn_cookies t id ~listeners =
-    match listeners id.Wire.local_port with
+  let process_syn_cookies t id =
+    match t.listeners id.Wire.local_port with
     | None -> return_unit
     | Some pushf ->
       read_syn_cookies t id >>= function
       | Some params ->
         printf "process SYN cookies for %s\n"
           (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
-        new_server_connection t params id pushf >>= fun _ -> return_unit
+        new_server_connection t ~xmit:false params id pushf >>= fun () ->
+        return_unit
       | None ->
         printf "No SYN cookies for %s.\n"
           (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
@@ -557,7 +572,7 @@ struct
         (* ACK but no matching pcb and no listen - send RST *)
         Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
-  let input_no_pcb t listeners pkt id =
+  let input_no_pcb t pkt id =
     match verify_checksum id pkt with
     | false -> printf "RX.input: checksum error\n%!"; return_unit
     | true ->
@@ -573,7 +588,7 @@ struct
         match syn, ack with
         | true , true  -> process_synack t id ~pkt ~ack_number ~sequence
                             ~options ~syn ~fin
-        | true , false -> process_syn t id ~listeners ~pkt ~ack_number ~sequence
+        | true , false -> process_syn t id ~pkt ~ack_number ~sequence
                             ~options ~syn ~fin
         | false, true  -> process_ack t id ~pkt ~ack_number ~sequence ~syn ~fin
         | false, false ->
@@ -583,6 +598,7 @@ struct
   (* Main input function for TCP packets *)
   let input t ~listeners ~src ~dst data =
     printf "input\n";
+    t.listeners <- listeners;
     let source_port = Tcp_wire.get_tcpv4_src_port data in
     let dest_port = Tcp_wire.get_tcpv4_dst_port data in
     let id =
@@ -596,7 +612,7 @@ struct
          cookies related to that id. We might want to pre-fetch the
          cookies by watching the xenstore tree, but let's not be too
          clever first. *)
-      if !mode = `Fast_start_app then process_syn_cookies t id ~listeners
+      if !mode = `Fast_start_app then process_syn_cookies t id
       else return_unit
     end >>= fun () ->
     (* Lookup connection from the active PCB hash *)
@@ -604,7 +620,7 @@ struct
       (* PCB exists, so continue the connection state machine in tcp_input *)
       (Rx.input t data)
       (* No existing PCB, so check if it is a SYN for a listening function *)
-      (input_no_pcb t listeners data)
+      (input_no_pcb t data)
 
   (* Blocking read on a PCB *)
   let read pcb =
@@ -715,6 +731,26 @@ struct
     let _ = connecttimer t id tx_isn options window 0 in
     th
 
+  let watchers = Hashtbl.create 4
+
+  let rec watch t =
+    let ip = Ipaddr.V4.to_string (Ipv4.get_ipv4 t.ip) in
+    KV.watch ip >>= fun () ->
+    KV.directory ip >>= fun ports ->
+    Lwt_list.fold_left_s (fun acc port ->
+        KV.directory (sprintf "%s/%s" ip port) >>= fun dest_ips ->
+        Lwt_list.fold_left_s (fun acc dest_ip ->
+            KV.directory (sprintf "%s/%s/%s" ip port dest_ip) >>= fun dest_ports ->
+            Lwt_list.fold_left_s (fun acc dest_port ->
+                let id = Wire.id_of_path [ip; port; dest_ip; dest_port] in
+                return (id :: acc)
+              ) acc dest_ports
+          ) acc dest_ips
+      ) [] ports
+    >>= fun ids ->
+    Lwt_list.iter_p (fun id -> process_syn_cookies t id) ids >>= fun () ->
+    watch t
+
   (* Construct the main TCP thread *)
   let create ip =
     let _ = Random.self_init () in
@@ -722,6 +758,12 @@ struct
     let listens = Hashtbl.create 1 in
     let connects = Hashtbl.create 1 in
     let channels = Hashtbl.create 7 in
-    { ip; localport; channels; listens; connects }
+    let listeners = fun _ -> None in
+    let t = { ip; localport; channels; listens; connects; listeners } in
+    if not (Hashtbl.find watchers ip) then (
+      Hashtbl.add watchers ip true;
+      ignore_result (watch t)
+    );
+    t
 
 end

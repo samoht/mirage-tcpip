@@ -32,8 +32,8 @@ module Tx(Time:V1_LWT.TIME)(Clock:V1.CLOCK) : sig
 
   module TXS: sig
     type t = Segment.Tx(Time)(Clock).t
-    val output : ?flags:Segment.tx_flags -> ?options:Options.t list -> t ->
-      [`Normal|`Fast_start_proxy|`Fast_start_app] -> Cstruct.t list -> unit Lwt.t
+    val output : ?flags:Segment.tx_flags -> ?options:Options.t list ->
+      xmit:bool -> rexmit:bool -> t -> Cstruct.t list -> unit Lwt.t
   end
 
   val create: max_size:int32 -> wnd:Window.t -> txq:TXS.t -> t
