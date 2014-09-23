@@ -20,9 +20,11 @@ type direct_ipv4_input = src:Ipaddr.V4.t -> dst:Ipaddr.V4.t -> Cstruct.t -> unit
 module type UDPV4_DIRECT = V1_LWT.UDPV4
   with type ipv4input = direct_ipv4_input
 
-module type TCPV4_DIRECT = V1_LWT.TCPV4
-  with type ipv4input = direct_ipv4_input
-
+module type TCPV4_DIRECT = sig
+  include V1_LWT.TCPV4
+    with type ipv4input = direct_ipv4_input
+  val watch: t -> listeners:(int -> callback option) ->  unit Lwt.t
+end
 module Make
     (Console : V1_LWT.CONSOLE)
     (Time    : V1_LWT.TIME)
@@ -72,7 +74,6 @@ struct
   let tcpv4 { tcpv4; _ } = tcpv4
   let udpv4 { udpv4; _ } = udpv4
   let ipv4 { ipv4; _ } = ipv4
-  let ethif { ethif; _ } = ethif
 
   let listen_udpv4 t ~port callback =
     Hashtbl.replace t.udpv4_listeners port callback
@@ -123,18 +124,22 @@ struct
     with Not_found -> default_tcpv4_listeners t
 
   let listen t =
-    Netif.listen t.netif (
-      Ethif.input
-        ~ipv4:(
-          Ipv4.input
-            ~tcp:(Tcpv4.input t.tcpv4
-                    ~listeners:(tcpv4_listeners t))
-            ~udp:(Udpv4.input t.udpv4
-                    ~listeners:(udpv4_listeners t))
-            ~default:(fun ~proto:_ ~src:_ ~dst:_ _ -> return_unit)
-            t.ipv4)
-        ~ipv6:(fun _ -> return_unit)
-        t.ethif)
+    let tcp_listeners = tcpv4_listeners t in
+    let net =
+      Netif.listen t.netif (
+        Ethif.input
+          ~ipv4:(
+            Ipv4.input
+              ~tcp:(Tcpv4.input t.tcpv4 ~listeners:tcp_listeners)
+              ~udp:(Udpv4.input t.udpv4
+                      ~listeners:(udpv4_listeners t))
+              ~default:(fun ~proto:_ ~src:_ ~dst:_ _ -> return_unit)
+              t.ipv4)
+          ~ipv6:(fun _ -> return_unit)
+          t.ethif)
+    in
+    let xs = Tcpv4.watch t.tcpv4 ~listeners:tcp_listeners in
+    Lwt.join [net; xs]
 
   let connect id =
     let { V1_LWT.console = c; interface = netif; mode; _ } = id in

@@ -100,7 +100,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
   type connection_result = [ `Ok of connection | `Rst | `Timeout ]
 
   type t = {
-    mutable listeners: int -> (pcb -> unit Lwt.t) option;
+    listeners: int -> (pcb -> unit Lwt.t) option;
     ip : Ipv4.t;
     mutable localport : int;
     channels: (Wire.id, connection) Hashtbl.t;
@@ -111,6 +111,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     (* clients in the process of connecting *)
     connects: (Wire.id, (connection_result Lwt.u * Sequence.t)) Hashtbl.t;
   }
+
+  let with_listeners listeners t = { t with listeners }
 
   let ip { ip; _ } = ip
 
@@ -439,12 +441,19 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     STATE.tick pcb.state (State.Send_synack params.tx_isn);
     (* Add the PCB to our listens table *)
     begin if !mode = `Fast_start_proxy then (
-        printf
-          "Proxy in fast-start mode, writing the SYN parameters in \
-           xenstore ...\n";
-        (* If running in `fast-start` proxy mode, simply hand over the
-           connection parameters to the app. *)
-        write_syn_cookies t id params
+        let ip = Ipaddr.V4.to_string id.Wire.local_ip in
+        KV.read ip >>= function
+        | Some "managed" ->
+          printf "%s has already started, no need to manage SYN packets on \
+                  its behalf." ip;
+            return_unit
+        | _  ->
+          printf
+            "Proxy in fast-start mode, writing the SYN parameters in \
+             xenstore ...\n";
+          (* If running in `fast-start` proxy mode, simply hand over the
+             connection parameters to the app. *)
+          write_syn_cookies t id params
       ) else (
         Hashtbl.replace t.listens id (params.tx_isn, (pushf, (pcb, th)));
         return_unit
@@ -533,18 +542,18 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
   let process_syn_cookies t id =
+    printf "process_syn_cookies %s"
+      (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match t.listeners id.Wire.local_port with
     | None -> return_unit
     | Some pushf ->
       read_syn_cookies t id >>= function
       | Some params ->
-        printf "process SYN cookies for %s\n"
-          (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+        printf "Found SYN cookies.\n";
         new_server_connection t ~xmit:false params id pushf >>= fun () ->
         return_unit
       | None ->
-        printf "No SYN cookies for %s.\n"
-          (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+        printf "No SYN cookies.\n";
         return_unit
         >>= fun _ -> return_unit
 
@@ -596,9 +605,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
           return_unit
 
   (* Main input function for TCP packets *)
-  let input t ~listeners ~src ~dst data =
-    printf "input\n";
-    t.listeners <- listeners;
+  let input t ~src ~dst data =
     let source_port = Tcp_wire.get_tcpv4_src_port data in
     let dest_port = Tcp_wire.get_tcpv4_dst_port data in
     let id =
@@ -607,14 +614,6 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         local_ip        = dst;
         dest_port       = source_port }
     in
-    begin
-      (* If running in `fast-start` app mode, first load any SYN
-         cookies related to that id. We might want to pre-fetch the
-         cookies by watching the xenstore tree, but let's not be too
-         clever first. *)
-      if !mode = `Fast_start_app then process_syn_cookies t id
-      else return_unit
-    end >>= fun () ->
     (* Lookup connection from the active PCB hash *)
     with_hashtbl t.channels id
       (* PCB exists, so continue the connection state machine in tcp_input *)
@@ -733,23 +732,34 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
 
   let watchers = Hashtbl.create 4
 
-  let rec watch t =
+  let watch t =
     let ip = Ipaddr.V4.to_string (Ipv4.get_ipv4 t.ip) in
-    KV.watch ip >>= fun () ->
-    KV.directory ip >>= fun ports ->
-    Lwt_list.fold_left_s (fun acc port ->
-        KV.directory (sprintf "%s/%s" ip port) >>= fun dest_ips ->
-        Lwt_list.fold_left_s (fun acc dest_ip ->
-            KV.directory (sprintf "%s/%s/%s" ip port dest_ip) >>= fun dest_ports ->
-            Lwt_list.fold_left_s (fun acc dest_port ->
-                let id = Wire.id_of_path [ip; port; dest_ip; dest_port] in
-                return (id :: acc)
-              ) acc dest_ports
-          ) acc dest_ips
-      ) [] ports
-    >>= fun ids ->
-    Lwt_list.iter_p (fun id -> process_syn_cookies t id) ids >>= fun () ->
-    watch t
+    let rec loop () =
+      printf "starting the xenstore SYN watch thread for ip=%s\n" ip;
+      KV.watch ip >>= fun () ->
+      printf "The watch for %s fired!\n" ip;
+      KV.directory ip >>= fun ports ->
+      Lwt_list.fold_left_s (fun acc port ->
+          KV.directory (sprintf "%s/%s" ip port) >>= fun dest_ips ->
+          Lwt_list.fold_left_s (fun acc dest_ip ->
+              KV.directory (sprintf "%s/%s/%s" ip port dest_ip) >>= fun dest_ports ->
+              Lwt_list.fold_left_s (fun acc dest_port ->
+                  let id = Wire.id_of_path [ip; port; dest_ip; dest_port] in
+                  return (id :: acc)
+                ) acc dest_ports
+            ) acc dest_ips
+        ) [] ports
+      >>= fun ids ->
+      Lwt_list.iter_p (fun id -> process_syn_cookies t id) ids >>= fun () ->
+      loop ()
+    in
+    if !mode = `Fast_start_app && not (Hashtbl.mem watchers t.ip) then (
+      Hashtbl.add watchers t.ip ();
+      KV.write [ ip, "managed" ] >>= fun () ->
+      loop ()
+    ) else
+      return_unit
+
 
   (* Construct the main TCP thread *)
   let create ip =
@@ -759,11 +769,6 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     let connects = Hashtbl.create 1 in
     let channels = Hashtbl.create 7 in
     let listeners = fun _ -> None in
-    let t = { ip; localport; channels; listens; connects; listeners } in
-    if not (Hashtbl.find watchers ip) then (
-      Hashtbl.add watchers ip true;
-      ignore_result (watch t)
-    );
-    t
+    { ip; localport; channels; listens; connects; listeners }
 
 end

@@ -15,6 +15,9 @@
  *)
 
 
-module Make (IP:V1_LWT.IPV4)(TM:V1_LWT.TIME)(C:V1.CLOCK)(R:V1.RANDOM) : V1_LWT.TCPV4
-  with type ipv4 = IP.t
-   and type ipv4input = src:Ipaddr.V4.t -> dst:Ipaddr.V4.t -> Cstruct.t -> unit Lwt.t
+module Make (IP:V1_LWT.IPV4)(TM:V1_LWT.TIME)(C:V1.CLOCK)(R:V1.RANDOM) : sig
+  include V1_LWT.TCPV4
+    with type ipv4 = IP.t
+     and type ipv4input = src:Ipaddr.V4.t -> dst:Ipaddr.V4.t -> Cstruct.t -> unit Lwt.t
+  val watch: t -> listeners:(int -> callback option) ->  unit Lwt.t
+end

@@ -43,8 +43,9 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
 
   val ip : t -> Ipv4.t
 
-  val input: t -> listeners:(int -> (pcb -> unit Lwt.t) option) ->
-    src:Ipaddr.V4.t -> dst:Ipaddr.V4.t -> Cstruct.t -> unit Lwt.t
+  val input: t -> src:Ipaddr.V4.t -> dst:Ipaddr.V4.t -> Cstruct.t -> unit Lwt.t
+
+  val with_listeners: (int -> (pcb -> unit Lwt.t) option) -> t -> t
 
   val connect: t -> dest_ip:Ipaddr.V4.t -> dest_port:int -> connection_result Lwt.t
 
@@ -71,4 +72,6 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
 
   val create: Ipv4.t -> t
   (* val tcpstats: t -> unit *)
+
+  val watch: t -> unit Lwt.t
 end
