@@ -534,6 +534,12 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
   let is_not_for_me t id =
     Ipaddr.V4.compare (Ipv4.get_ipv4 t.ip) id.Wire.local_ip <> 0
 
+  let is_managed id =
+    let ip = Ipaddr.V4.to_string id.Wire.local_ip in
+    KV.read ip >>= function
+    | Some "managed" -> return true
+    | _ -> return false
+
   let new_server_connection t ~xmit params id pushf =
     printf "new_server_connection id=%s xmit=%b\n"
       (Sexplib.Sexp.to_string (Wire.sexp_of_id id)) xmit;
@@ -542,18 +548,18 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     STATE.tick pcb.state (State.Send_synack params.Syn.tx_isn);
     (* Add the PCB to our listens table *)
     begin if !mode = `Fast_start_proxy && is_not_for_me t id then (
-    (*  let ip = Ipaddr.V4.to_string id.Wire.local_ip in
-        KV.read ip >>= function
-        | Some "managed" ->
+        let ip = Ipaddr.V4.to_string id.Wire.local_ip in
+        is_managed id >>= function
+        | true ->
           printf "%s has already started, no need to manage SYN packets on \
                   its behalf." ip;
-            return_unit
-        | _  ->
+          return_unit
+        | false ->
           printf
             "Proxy in fast-start mode, writing the SYN parameters in \
-             xenstore ...\n"; *)
+             xenstore ...\n";
           (* If running in `fast-start` proxy mode, simply hand over the
-             connection parameters to the app. *)
+               connection parameters to the app. *)
           Syn.write t id params
       ) else (
         printf "Adding a new pcb for %s\n"
@@ -639,9 +645,14 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
   let process_syn t id ~pkt ~ack_number ~sequence ~options ~syn ~fin =
     (* In fast-start mode an app never replies to SYN packets. A proxy
        in fast-start mode replies to all the SYNS. *)
-    if !mode = `Fast_start_app || (!mode = `Normal && is_not_for_me t id)
-    then return_unit
-    else (
+    if (!mode <> `Fast_start_proxy && is_not_for_me t id) then (
+      printf "ignoring SYN packet\n";
+      return_unit
+    ) else (
+    begin if !mode = `Fast_start_proxy then is_managed id else return false end
+    >>= function
+    | true -> printf "proxy ignoring SYN packet\n"; return_unit
+    | false ->
     printf "process_syn %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     (* XXX: we should bypass that in the proxy case *)
     match t.listeners id.Wire.local_port with
