@@ -331,6 +331,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     let path_of_id id = String.concat "/" (Wire.path_of_id id) ^ "/syn"
 
     let write _t id params =
+      printf "Reading SYN cookie for %s\n"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
       let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
         params
       in
@@ -365,7 +367,6 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         read "rx_wnd"   >>| fun rx_wnd ->
         read "rx_wnd_scaleoffer" >>| fun rx_wnd_scaleoffer ->
         KV.remove path >>= fun () ->
-        printf "read_syn_cookies: 1/2\n";
         try
           let tx_wnd = int_of_string tx_wnd in
           let sequence = Int32.of_string sequence in
@@ -373,9 +374,96 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
           let tx_isn = Sequence.of_string tx_isn in
           let rx_wnd = int_of_string rx_wnd in
           let rx_wnd_scaleoffer = int_of_string rx_wnd_scaleoffer in
-          printf "read_syn_cookies: 2/2\n";
           return
             (Some { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer })
+        with Failure _ ->
+          return_none
+
+  end
+
+  module Data = struct
+
+    type t = Cstruct.t
+
+    let path_of_id id =
+      String.concat "/" (Wire.path_of_id id) ^ "/data"
+
+    let write t id data =
+      printf "Writing Data cookies.\n";
+      let path = path_of_id id ^ "/" ^ string_of_float (Clock.time ()) in
+      KV.write [path, Cstruct.to_string data]
+
+    let read t id =
+      printf "Reading Data cookies.\n";
+      let path = path_of_id id in
+      begin KV.directory path >>= fun dirs ->
+        Lwt_list.map_s (fun dir ->
+            KV.read (path ^ "/" ^ dir) >>= function
+            | None   -> fail (Failure "read")
+            | Some s -> return s
+          ) dirs
+      end >>= fun ts ->
+      KV.remove path >>= fun () ->
+      return (Some ts)
+
+  end
+
+  module Ack = struct
+
+    type t = {
+      ack_number: int32;
+      sequence: int32;
+      syn: bool;
+      fin: bool;
+      pkt: Data.t;
+    }
+
+    let path_of_id id =
+      String.concat "/" (Wire.path_of_id id) ^ "/ack"
+
+    let write t id params =
+      printf "Writing ACK cookie for %s\n"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+      let { ack_number; sequence; syn; fin; pkt } =
+        params
+      in
+      let path = path_of_id id in
+      let key k = Filename.concat path k in
+      KV.write [
+        key "ack_number", Int32.to_string ack_number;
+        key "sequence"  , Int32.to_string sequence;
+        key "syn"       , string_of_bool syn;
+        key "fin"       , string_of_bool fin;
+        key "pkt"       , Cstruct.to_string pkt;
+      ]
+
+    let read t id =
+      printf "Reading ACK cookie for %s\n"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+      let path = path_of_id id in
+      KV.read path >>= function
+      | None   -> return_none
+      | Some _ ->
+        (* XXX: use a transaction *)
+        let read k = KV.read (Filename.concat path k) in
+        let (>>|) x f =
+          x >>= function
+          | None   -> return_none
+          | Some x -> f x in
+        read "ack_number" >>| fun ack_number ->
+        read "sequence"   >>| fun sequence ->
+        read "syn"        >>| fun syn ->
+        read "fin"        >>| fun fin ->
+        read "pkt"        >>| fun pkt ->
+        KV.remove path    >>= fun () ->
+        try
+          let ack_number = Int32.of_string ack_number in
+          let sequence = Int32.of_string sequence in
+          let syn = bool_of_string syn in
+          let fin = bool_of_string fin in
+          let pkt = Cstruct.of_string pkt in
+          return
+            (Some { ack_number; sequence; syn; fin; pkt })
         with Failure _ ->
           return_none
 
@@ -586,6 +674,34 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       | None ->
         (* ACK but no matching pcb and no listen - send RST *)
         Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
+
+  let process_ack_cookies t id =
+    printf "process_ack_cookies %s"
+      (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+    Ack.read t id >>= function
+    | None -> printf "No ACK cookies.\n"; return_unit
+    | Some { Ack.ack_number; sequence; syn; fin; pkt } ->
+      match hashtbl_find t.listens id with
+      | Some (tx_isn, (pushf, newconn)) ->
+        if Sequence.(to_int32 (incr tx_isn)) = ack_number then (
+          (* Established connection - promote to active channels *)
+          Hashtbl.remove t.listens id;
+          Hashtbl.add t.channels id newconn;
+          (* Finish processing ACK, so pcb.state is correct *)
+          Rx.input t pkt newconn >>= fun () ->
+          (* send new connection up to listener *)
+          pushf (fst newconn)
+        ) else
+          (* No RST because we are trying to connect on this id *)
+          return_unit
+      | None ->
+        match hashtbl_find t.connects id with
+        | Some _ ->
+          (* No RST because we are trying to connect on this id *)
+          return_unit
+        | None ->
+          (* ACK but no matching pcb and no listen - send RST *)
+          Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
   let input_no_pcb t pkt id =
     match verify_checksum id pkt with
