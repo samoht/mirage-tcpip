@@ -555,8 +555,12 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     end >>= fun () ->
     (* Queue a SYN ACK for transmission *)
     let options = Options.MSS 1460 :: opts in
-    let rexmit = !mode <> `Fast_start_proxy in
-    TXS.output ~flags:Segment.Syn ~options pcb.txq ~rexmit ~xmit [] >>= fun () ->
+    begin if xmit then (
+      let rexmit = !mode <> `Fast_start_proxy in
+      TXS.output ~flags:Segment.Syn ~options pcb.txq ~rexmit ~xmit []
+      ) else
+        return_unit
+    end >>= fun () ->
     return_unit
 
   let new_client_connection t params id ack_number =
@@ -627,7 +631,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       (* TODO: make this configurable per listener *)
       let rx_wnd = 65535 in
       let rx_wnd_scaleoffer = wscale_default in
-      new_server_connection t ~xmit:true
+      new_server_connection t ~xmit:false
         { Syn.tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer }
         id pushf
       >>= fun () ->
@@ -644,7 +648,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       Syn.read t id >>= function
       | Some params ->
         printf "Found SYN cookies.\n";
-        new_server_connection t ~xmit:false params id pushf >>= fun () ->
+        new_server_connection t ~xmit:true params id pushf >>= fun () ->
         return_unit
       | None ->
         printf "No SYN cookies.\n";
