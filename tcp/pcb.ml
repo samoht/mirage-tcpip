@@ -377,6 +377,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
           return
             (Some { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer })
         with Failure _ ->
+          KV.remove path >>= fun () ->
           return_none
 
   end
@@ -535,7 +536,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     STATE.tick pcb.state (State.Send_synack params.Syn.tx_isn);
     (* Add the PCB to our listens table *)
     begin if !mode = `Fast_start_proxy then (
-        let ip = Ipaddr.V4.to_string id.Wire.local_ip in
+    (*  let ip = Ipaddr.V4.to_string id.Wire.local_ip in
         KV.read ip >>= function
         | Some "managed" ->
           printf "%s has already started, no need to manage SYN packets on \
@@ -544,7 +545,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         | _  ->
           printf
             "Proxy in fast-start mode, writing the SYN parameters in \
-             xenstore ...\n";
+             xenstore ...\n"; *)
           (* If running in `fast-start` proxy mode, simply hand over the
              connection parameters to the app. *)
           Syn.write t id params
