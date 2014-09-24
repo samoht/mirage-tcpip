@@ -923,12 +923,14 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       loop ()
     in
     if !mode = `Fast_start_app && not (Hashtbl.mem watchers t.ip) then (
+      printf "FAST-START mode. Watching xenstore for incoming SYN!\n";
       Hashtbl.add watchers t.ip ();
       KV.write [ ip, "managed" ] >>= fun () ->
       loop ()
-    ) else
+    ) else (
+      printf "NORMAL mode. I don't even listen to Xenstore.\n";
       return_unit
-
+    )
 
   (* Construct the main TCP thread *)
   let create ip =
