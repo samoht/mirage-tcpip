@@ -531,12 +531,17 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     Gc.finalise fnth th;
     return (pcb, th, opts)
 
+  let is_not_for_me t id =
+    Ipaddr.V4.compare (Ipv4.get_ipv4 t.ip) id.Wire.local_ip <> 0
+
   let new_server_connection t ~xmit params id pushf =
+    printf "new_server_connection id=%s xmit=%b\n"
+      (Sexplib.Sexp.to_string (Wire.sexp_of_id id)) xmit;
     new_pcb t params id >>= fun (pcb, th, opts) ->
     STATE.tick pcb.state State.Passive_open;
     STATE.tick pcb.state (State.Send_synack params.Syn.tx_isn);
     (* Add the PCB to our listens table *)
-    begin if !mode = `Fast_start_proxy then (
+    begin if !mode = `Fast_start_proxy && is_not_for_me t id then (
     (*  let ip = Ipaddr.V4.to_string id.Wire.local_ip in
         KV.read ip >>= function
         | Some "managed" ->
@@ -551,6 +556,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
              connection parameters to the app. *)
           Syn.write t id params
       ) else (
+        printf "Adding a new pcb for %s\n"
+          (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
         Hashtbl.replace t.listens id (params.Syn.tx_isn, (pushf, (pcb, th)));
         return_unit
       )
@@ -579,6 +586,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     return (pcb, th)
 
   let process_reset t id =
+    if is_not_for_me t id then return_unit
+    else (
     printf "process_reset %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match hashtbl_find t.connects id with
     | Some (wakener, _) ->
@@ -596,8 +605,11 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       | None ->
         (* Incoming RST possibly to listen port - ignore per RFC793 pg65 *)
         return_unit
+    )
 
   let process_synack t id ~pkt ~ack_number ~sequence ~options ~syn ~fin =
+    if is_not_for_me t id then return_unit
+    else (
     match hashtbl_find t.connects id with
     | Some (wakener, tx_isn) ->
       if Sequence.(to_int32 (incr tx_isn)) = ack_number then (
@@ -622,12 +634,16 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       (* Incomming SYN-ACK with no pending connect and no matching pcb
          - send RST *)
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
+    )
 
-  let process_syn t id ~pkt ~ack_number ~sequence ~options ~syn ~fin
-    =
-    if !mode = `Fast_start_app then return_unit
+  let process_syn t id ~pkt ~ack_number ~sequence ~options ~syn ~fin =
+    (* In fast-start mode an app never replies to SYN packets. A proxy
+       in fast-start mode replies to all the SYNS. *)
+    if !mode = `Fast_start_app || (!mode = `Normal && is_not_for_me t id)
+    then return_unit
     else (
     printf "process_syn %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+    (* XXX: we should bypass that in the proxy case *)
     match t.listeners id.Wire.local_port with
     | Some pushf ->
       let tx_isn = Sequence.of_int ((Random.int 65535) + 0x1AFE0000) in
@@ -635,7 +651,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       (* TODO: make this configurable per listener *)
       let rx_wnd = 65535 in
       let rx_wnd_scaleoffer = wscale_default in
-      new_server_connection t ~xmit:false
+      new_server_connection t ~xmit:(not (is_not_for_me t id))
         { Syn.tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer }
         id pushf
       >>= fun () ->
@@ -661,6 +677,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         >>= fun _ -> return_unit
 
   let process_ack t id ~pkt ~ack_number ~sequence ~syn ~fin =
+    if is_not_for_me t id then return_unit
+    else (
     printf "process_ack %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match hashtbl_find t.listens id with
     | Some (tx_isn, (pushf, newconn)) ->
@@ -683,6 +701,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       | None ->
         (* ACK but no matching pcb and no listen - send RST *)
         Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
+    )
 
   let process_ack_cookies t id =
     printf "process_ack_cookies %s"
