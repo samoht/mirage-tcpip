@@ -328,7 +328,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         rx_wnd: int;
         rx_wnd_scaleoffer: int }
 
-    let path_of_id id = String.concat "/" (Wire.path_of_id id) ^ "/syn"
+    let short_path_of_id id = String.concat "/" (Wire.path_of_id id)
+    let path_of_id id = short_path_of_id id ^ "/syn"
 
     let write _t id params =
       printf "Writing SYN cookie for %s\n"
@@ -366,7 +367,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         read "tx_isn"   >>| fun tx_isn ->
         read "rx_wnd"   >>| fun rx_wnd ->
         read "rx_wnd_scaleoffer" >>| fun rx_wnd_scaleoffer ->
-        KV.remove path >>= fun () ->
+        KV.remove (short_path_of_id id) >>= fun () ->
         try
           let tx_wnd = int_of_string tx_wnd in
           let sequence = Int32.of_string sequence in
@@ -884,7 +885,11 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         ) [] ports
       >>= fun ids ->
       printf "Found %d started connections.\n" (List.length ids);
-      Lwt_list.iter_p (fun id -> process_syn_cookies t id) ids >>= fun () ->
+      Lwt_list.iter_p (fun id ->
+          Lwt.catch
+            (fun () -> process_syn_cookies t id)
+            (fun e -> printf "Error: %s" (Printexc.to_string e); return_unit)
+        ) ids >>= fun () ->
       loop ()
     in
     if !mode = `Fast_start_app && not (Hashtbl.mem watchers t.ip) then (
