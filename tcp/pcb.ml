@@ -331,7 +331,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     let path_of_id id = String.concat "/" (Wire.path_of_id id) ^ "/syn"
 
     let write _t id params =
-      printf "Reading SYN cookie for %s\n"
+      printf "Writing SYN cookie for %s\n"
         (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
       let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
         params
@@ -624,6 +624,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
 
   let process_syn t id ~pkt ~ack_number ~sequence ~options ~syn ~fin
     =
+    if !mode = `Fast_start_app then return_unit
+    else (
     printf "process_syn %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match t.listeners id.Wire.local_port with
     | Some pushf ->
@@ -639,6 +641,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       return_unit
     | None ->
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
+    )
 
   let process_syn_cookies t id =
     printf "process_syn_cookies %s"
@@ -866,10 +869,13 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       KV.watch ip >>= fun () ->
       printf "The watch for %s fired!\n" ip;
       KV.directory ip >>= fun ports ->
+      printf "Ports: %s\n" (String.concat " " ports);
       Lwt_list.fold_left_s (fun acc port ->
           KV.directory (sprintf "%s/%s" ip port) >>= fun dest_ips ->
+          printf "Dest-ip: %s\n" (String.concat " " dest_ips);
           Lwt_list.fold_left_s (fun acc dest_ip ->
               KV.directory (sprintf "%s/%s/%s" ip port dest_ip) >>= fun dest_ports ->
+              printf "Dest-ports: %s\n" (String.concat " " dest_ports);
               Lwt_list.fold_left_s (fun acc dest_port ->
                   let id = Wire.id_of_path [ip; port; dest_ip; dest_port] in
                   return (id :: acc)
@@ -877,6 +883,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
             ) acc dest_ips
         ) [] ports
       >>= fun ids ->
+      printf "Found %d started connections.\n" (List.length ids);
       Lwt_list.iter_p (fun id -> process_syn_cookies t id) ids >>= fun () ->
       loop ()
     in
