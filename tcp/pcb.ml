@@ -331,23 +331,6 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     let short_path_of_id id = String.concat "/" (Wire.path_of_id id)
     let path_of_id id = short_path_of_id id ^ "/syn"
 
-    let write _t id params =
-      printf "Writing SYN cookie for %s\n%!"
-        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
-      let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
-        params
-      in
-      let path = path_of_id id in
-      let key k = Filename.concat path k in
-      KV.write [
-        key "tx_wnd"           , string_of_int tx_wnd;
-        key "sequence"         , Int32.to_string sequence;
-        key "options"          , Options.to_string options;
-        key "tx_isn"           , Sequence.to_string tx_isn;
-        key "rx_wnd"           , string_of_int rx_wnd;
-        key "rx_wnd_scaleoffer", string_of_int rx_wnd_scaleoffer
-      ]
-
     let read _t id =
       printf "Reading SYN cookie for %s\n%!"
         (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
@@ -380,6 +363,30 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         with Failure _ ->
           KV.remove path >>= fun () ->
           return_none
+
+    let write t id params =
+      printf "Writing SYN cookie for %s\n%!"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+      let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
+        params
+      in
+      let path = path_of_id id in
+      let key k = Filename.concat path k in
+      KV.write [
+        key "tx_wnd"           , string_of_int tx_wnd;
+        key "sequence"         , Int32.to_string sequence;
+        key "options"          , Options.to_string options;
+        key "tx_isn"           , Sequence.to_string tx_isn;
+        key "rx_wnd"           , string_of_int rx_wnd;
+        key "rx_wnd_scaleoffer", string_of_int rx_wnd_scaleoffer
+      ] >>= fun () ->
+      read t id >>= function
+      | Some p ->
+        assert (params = p);
+        return_unit
+      | None ->
+        printf "cannot read syn cookie\n%!";
+        return_unit
 
   end
 
