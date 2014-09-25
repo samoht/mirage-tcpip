@@ -895,10 +895,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
 
   let watch t =
     let ip = Ipaddr.V4.to_string (Ipv4.get_ipv4 t.ip) in
-    let rec loop () =
-      printf "starting the xenstore SYN watch thread for ip=%s\n" ip;
-      KV.watch ip >>= fun () ->
-      printf "The watch for %s fired!\n" ip;
+    let read_xs () =
       KV.directory ip >>= fun ports ->
       printf "Ports: %s\n" (String.concat " " ports);
       Lwt_list.fold_left_s (fun acc port ->
@@ -920,15 +917,15 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
             (fun () -> process_syn_cookies t id)
             (fun e -> printf "Error: %s" (Printexc.to_string e); return_unit)
         ) ids >>= fun () ->
-      loop ()
+      return_unit
     in
     if !mode = `Fast_start_app && not (Hashtbl.mem watchers t.ip) then (
       printf "FAST-START mode. Watching xenstore for incoming SYN!\n";
       Hashtbl.add watchers t.ip ();
       KV.write [ ip, "managed" ] >>= fun () ->
-      loop ()
+      read_xs ()
     ) else (
-      printf "NORMAL mode. I don't even listen to Xenstore.\n";
+      printf "NORMAL mode.\n";
       return_unit
     )
 
