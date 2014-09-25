@@ -291,7 +291,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     (* TODO: add more info to log msgs *)
     match hashtbl_find t.channels id with
     | Some _ ->
-      (* printf "TCP: removing pcb from tables\n%!";*)
+      printf "TCP: removing pcb from tables\n%!";
       Hashtbl.remove t.channels id
     | None ->
       match hashtbl_find t.listens id with
@@ -332,8 +332,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     let path_of_id id = short_path_of_id id ^ "/syn"
 
     let write _t id params =
-(*      printf "Writing SYN cookie for %s\n"
-        (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
+      printf "Writing SYN cookie for %s\n%!"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
       let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
         params
       in
@@ -349,8 +349,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       ]
 
     let read _t id =
-(*      printf "Reading SYN cookie for %s\n"
-        (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
+      printf "Reading SYN cookie for %s\n%!"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
       let path = path_of_id id in
       KV.read path >>= function
       | None   -> return_none
@@ -552,18 +552,18 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         is_managed id >>= function
         | true ->
           printf "%s has already started, no need to manage SYN packets on \
-                  its behalf." ip;
+                  its behalf.\n%!" ip;
           return_unit
         | false ->
           printf
             "Proxy in fast-start mode, writing the SYN parameters in \
-             xenstore ...\n";
+             xenstore ...\n%!";
           (* If running in `fast-start` proxy mode, simply hand over the
                connection parameters to the app. *)
           Syn.write t id params
       ) else (
-(*        printf "Adding a new pcb for %s\n"
-          (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
+        printf "Adding a new pcb for %s\n%!"
+          (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
         Hashtbl.replace t.listens id (params.Syn.tx_isn, (pushf, (pcb, th)));
         return_unit
       )
@@ -594,7 +594,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
   let process_reset t id =
     if is_not_for_me t id then return_unit
     else (
-(*    printf "process_reset %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
+    printf "process_reset %s\n%!" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match hashtbl_find t.connects id with
     | Some (wakener, _) ->
       (* URG_TODO: check if RST ack num is valid before it is accepted *)
@@ -646,14 +646,14 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     (* In fast-start mode an app never replies to SYN packets. A proxy
        in fast-start mode replies to all the SYNS. *)
     if (!mode <> `Fast_start_proxy && is_not_for_me t id) then (
-(*      printf "ignoring SYN packet\n"; *)
+      printf "ignoring SYN packet\n%!";
       return_unit
     ) else (
     begin if !mode = `Fast_start_proxy then is_managed id else return false end
     >>= function
-    | true -> (* printf "proxy ignoring SYN packet\n"; *) return_unit
+    | true -> printf "proxy ignoring SYN packet\n%!"; return_unit
     | false ->
-    (* printf "process_syn %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
+    printf "process_syn %s\n%!" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     (* XXX: we should bypass that in the proxy case *)
     match t.listeners id.Wire.local_port with
     | Some pushf ->
@@ -672,25 +672,25 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     )
 
   let process_syn_cookies t id =
-    printf "process_syn_cookies %s\n"
+    printf "process_syn_cookies %s\n%!"
       (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match t.listeners id.Wire.local_port with
     | None -> return_unit
     | Some pushf ->
       Syn.read t id >>= function
       | Some params ->
-        printf "Found SYN cookies.\n";
+        printf "Found SYN cookies.\n%!";
         new_server_connection t ~xmit:true params id pushf >>= fun () ->
         return_unit
       | None ->
-        printf "No SYN cookies.\n";
+        printf "No SYN cookies.\n%!";
         return_unit
         >>= fun _ -> return_unit
 
   let process_ack t id ~pkt ~ack_number ~sequence ~syn ~fin =
     if is_not_for_me t id then return_unit
     else (
-(*    printf "process_ack %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
+    printf "process_ack %s\n%!" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match hashtbl_find t.listens id with
     | Some (tx_isn, (pushf, newconn)) ->
       if Sequence.(to_int32 (incr tx_isn)) = ack_number then (
@@ -897,13 +897,13 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     let ip = Ipaddr.V4.to_string (Ipv4.get_ipv4 t.ip) in
     let read_xs () =
       KV.directory ip >>= fun ports ->
-      printf "Ports: %s\n" (String.concat " " ports);
+      printf "Ports: %s\n%!" (String.concat " " ports);
       Lwt_list.fold_left_s (fun acc port ->
           KV.directory (sprintf "%s/%s" ip port) >>= fun dest_ips ->
-          printf "Dest-ip: %s\n" (String.concat " " dest_ips);
+          printf "Dest-ip: %s\n%!" (String.concat " " dest_ips);
           Lwt_list.fold_left_s (fun acc dest_ip ->
               KV.directory (sprintf "%s/%s/%s" ip port dest_ip) >>= fun dest_ports ->
-              printf "Dest-ports: %s\n" (String.concat " " dest_ports);
+              printf "Dest-ports: %s\n%!" (String.concat " " dest_ports);
               Lwt_list.fold_left_s (fun acc dest_port ->
                   let id = Wire.id_of_path [ip; port; dest_ip; dest_port] in
                   return (id :: acc)
@@ -911,21 +911,21 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
             ) acc dest_ips
         ) [] ports
       >>= fun ids ->
-      printf "Found %d started connections.\n" (List.length ids);
+      printf "Found %d started connections.\n%!" (List.length ids);
       Lwt_list.iter_p (fun id ->
           Lwt.catch
             (fun () -> process_syn_cookies t id)
-            (fun e -> printf "Error: %s" (Printexc.to_string e); return_unit)
+            (fun e -> printf "Error: %s\n%!" (Printexc.to_string e); return_unit)
         ) ids >>= fun () ->
       return_unit
     in
     if !mode = `Fast_start_app && not (Hashtbl.mem watchers t.ip) then (
-      printf "FAST-START mode. Watching xenstore for incoming SYN!\n";
+      printf "FAST-START mode. Watching xenstore for incoming SYN!\n%!";
       Hashtbl.add watchers t.ip ();
       KV.write [ ip, "managed" ] >>= fun () ->
       read_xs ()
     ) else (
-      printf "NORMAL mode.\n";
+      printf "NORMAL mode.\n%!";
       return_unit
     )
 
