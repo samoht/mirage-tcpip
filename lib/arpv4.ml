@@ -204,5 +204,5 @@ let create ~get_etherbuf ~output ~get_mac =
     Hashtbl.replace cache spa (Verified sha);
   in
   add "192.168.2.1" "5e:f9:38:f8:f1:64";
-  add "10.0.1.1"    "5e:f9:38:f8:f1:64";
+  add "10.0.1.1"    "00:25:90:2c:e7:91";
   { output; get_mac; cache; bound_ips; get_etherbuf }
