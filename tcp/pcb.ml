@@ -360,6 +360,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
           let tx_isn = Sequence.of_string tx_isn in
           let rx_wnd = int_of_string rx_wnd in
           let rx_wnd_scaleoffer = int_of_string rx_wnd_scaleoffer in
+          printf "seq=%ld\n%!" sequence;
           return
             (Some { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer })
         with Failure _ ->
@@ -367,8 +368,9 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
           return_none
 
     let write t id params =
-      printf "Writing SYN cookie for %s\n%!"
-        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+      printf "Writing SYN cookie for %s seq=%ld\n%!"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id))
+        params.sequence;
       let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
         params
       in
