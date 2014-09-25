@@ -148,6 +148,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
 
     (* Output a TCP packet, and calculate some settings from a state descriptor *)
     let xmit_pcb ip id ~flags ~wnd ~options ~seq datav =
+      printf "xmit_pcb %s\n%!" (Sequence.to_string seq);
       let window = Int32.to_int (Window.rx_wnd_unscaled wnd) in
       let rx_ack = Some (Window.rx_nxt wnd) in
       let syn = match flags with Segment.Syn -> true | _ -> false in

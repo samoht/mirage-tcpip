@@ -108,6 +108,7 @@ module Make(Ethif : V1_LWT.ETHIF) = struct
     Ethif.writev t.ethif [frame;data]
 
   let writev t ethernet_frame bufs =
+    printf "writev\n%!";
     let tlen =
       Cstruct.len ethernet_frame
       - Wire_structs.sizeof_ethernet
