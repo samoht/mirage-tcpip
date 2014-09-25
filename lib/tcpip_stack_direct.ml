@@ -124,22 +124,20 @@ struct
     with Not_found -> default_tcpv4_listeners t
 
   let listen t =
-    let tcp_listeners = tcpv4_listeners t in
-    let net =
-      Netif.listen t.netif (
-        Ethif.input
-          ~ipv4:(
-            Ipv4.input
-              ~tcp:(Tcpv4.input t.tcpv4 ~listeners:tcp_listeners)
-              ~udp:(Udpv4.input t.udpv4
-                      ~listeners:(udpv4_listeners t))
-              ~default:(fun ~proto:_ ~src:_ ~dst:_ _ -> return_unit)
-              t.ipv4)
-          ~ipv6:(fun _ -> return_unit)
-          t.ethif)
-    in
-    let xs = Tcpv4.watch t.tcpv4 ~listeners:tcp_listeners in
-    Lwt.join [net; xs]
+    Netif.listen t.netif (
+      Ethif.input
+        ~ipv4:(
+          Ipv4.input
+            ~tcp:(Tcpv4.input t.tcpv4 ~listeners:(tcpv4_listeners t))
+            ~udp:(Udpv4.input t.udpv4 ~listeners:(udpv4_listeners t))
+            ~default:(fun ~proto:_ ~src:_ ~dst:_ _ -> return_unit)
+            t.ipv4)
+        ~ipv6:(fun _ -> return_unit)
+        t.ethif
+    )
+
+  let watch t =
+    Tcpv4.watch t.tcpv4 ~listeners:(tcpv4_listeners t)
 
   let connect id =
     let { V1_LWT.console = c; interface = netif; mode; _ } = id in
@@ -168,6 +166,7 @@ struct
     let _ = listen t in
     configure t t.mode
     >>= fun () ->
+    ignore_result (watch t);
     (* TODO: this is fine for now, because the DHCP state machine isn't fully
        implemented and its thread will terminate after one successful lease
        transaction.  For a DHCP thread that runs forever, `configure` will need
