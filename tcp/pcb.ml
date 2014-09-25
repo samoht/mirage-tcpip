@@ -665,7 +665,9 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     >>= function
     | true -> printf "proxy ignoring SYN packet\n%!"; return_unit
     | false ->
-    printf "process_syn %s\n%!" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+    printf "process_syn %s seq=%ld\n%!"
+      (Sexplib.Sexp.to_string (Wire.sexp_of_id id))
+      sequence;
     (* XXX: we should bypass that in the proxy case *)
     match t.listeners id.Wire.local_port with
     | Some pushf ->
@@ -691,7 +693,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     | Some pushf ->
       Syn.read t ~clean:true id >>= function
       | Some params ->
-        printf "Found SYN cookies.\n%!";
+        printf "Found SYN cookies: %s\n%!"
+          (Sexplib.Sexp.to_string (Syn.sexp_of_t params));
         new_server_connection t ~xmit:true params id pushf >>= fun () ->
         return_unit
       | None ->
@@ -702,7 +705,9 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
   let process_ack t id ~pkt ~ack_number ~sequence ~syn ~fin =
     if is_not_for_me t id then return_unit
     else (
-    printf "process_ack %s\n%!" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+    printf "process_ack %s seq=%ld\n%!"
+      (Sexplib.Sexp.to_string (Wire.sexp_of_id id))
+      sequence;
     match hashtbl_find t.listens id with
     | Some (tx_isn, (pushf, newconn)) ->
       if Sequence.(to_int32 (incr tx_isn)) = ack_number then (
