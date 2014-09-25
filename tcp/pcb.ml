@@ -333,7 +333,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     let short_path_of_id id = String.concat "/" (Wire.path_of_id id)
     let path_of_id id = short_path_of_id id ^ "/syn"
 
-    let read _t id =
+    let read _t ~clean id =
       printf "Reading SYN cookie for %s\n%!"
         (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
       let path = path_of_id id in
@@ -352,7 +352,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         read "tx_isn"   >>| fun tx_isn ->
         read "rx_wnd"   >>| fun rx_wnd ->
         read "rx_wnd_scaleoffer" >>| fun rx_wnd_scaleoffer ->
-        KV.remove (short_path_of_id id) >>= fun () ->
+        (if clean then KV.remove (short_path_of_id id) else return_unit) >>= fun () ->
         try
           let tx_wnd = int_of_string tx_wnd in
           let sequence = Int32.of_string sequence in
@@ -382,7 +382,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         key "rx_wnd"           , string_of_int rx_wnd;
         key "rx_wnd_scaleoffer", string_of_int rx_wnd_scaleoffer
       ] >>= fun () ->
-      read t id >>= function
+      read t ~clean:false id >>= function
       | Some p ->
         if (params <> p) then (
           printf "ERROR: %s\n%!" (Sexplib.Sexp.to_string (sexp_of_t params));
@@ -689,7 +689,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     match t.listeners id.Wire.local_port with
     | None -> return_unit
     | Some pushf ->
-      Syn.read t id >>= function
+      Syn.read t ~clean:true id >>= function
       | Some params ->
         printf "Found SYN cookies.\n%!";
         new_server_connection t ~xmit:true params id pushf >>= fun () ->
