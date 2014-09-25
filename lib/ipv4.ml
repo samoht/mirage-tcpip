@@ -64,24 +64,29 @@ module Make(Ethif : V1_LWT.ETHIF) = struct
   end
 
   let allocate_frame ~proto ~dest_ip t =
+    printf "allocate_frame\n%!";
     let ethernet_frame = Io_page.to_cstruct (Io_page.get 1) in
     (* Something of a layer violation here, but ARP is awkward *)
     Routing.destination_mac t dest_ip >|= Macaddr.to_bytes >>= fun dmac ->
+    printf "allocate_frame 2\n%!";
     let smac = Macaddr.to_bytes (Ethif.mac t.ethif) in
     Wire_structs.set_ethernet_dst dmac 0 ethernet_frame;
     Wire_structs.set_ethernet_src smac 0 ethernet_frame;
     Wire_structs.set_ethernet_ethertype ethernet_frame 0x0800;
     let buf = Cstruct.shift ethernet_frame Wire_structs.sizeof_ethernet in
+    printf "allocate_frame 3\n%!";
     (* Write the constant IPv4 header fields *)
     Wire_structs.set_ipv4_hlen_version buf ((4 lsl 4) + (5)); (* TODO options *)
     Wire_structs.set_ipv4_tos buf 0;
     Wire_structs.set_ipv4_off buf 0; (* TODO fragmentation *)
     Wire_structs.set_ipv4_ttl buf 38; (* TODO *)
     let proto = match proto with |`ICMP -> 1 |`TCP -> 6 |`UDP -> 17 in
+    printf "allocate_frame 4\n%!";
     Wire_structs.set_ipv4_proto buf proto;
     Wire_structs.set_ipv4_src buf (Ipaddr.V4.to_int32 t.ip);
     Wire_structs.set_ipv4_dst buf (Ipaddr.V4.to_int32 dest_ip);
     let len = Wire_structs.sizeof_ethernet + Wire_structs.sizeof_ipv4 in
+    printf "allocate_frame 5\n%!";
     return (ethernet_frame, len)
 
   let adjust_output_header ~tlen frame =
