@@ -332,8 +332,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     let path_of_id id = short_path_of_id id ^ "/syn"
 
     let write _t id params =
-      printf "Writing SYN cookie for %s\n"
-        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+(*      printf "Writing SYN cookie for %s\n"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
       let { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer } =
         params
       in
@@ -349,8 +349,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       ]
 
     let read _t id =
-      printf "Reading SYN cookie for %s\n"
-        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+(*      printf "Reading SYN cookie for %s\n"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
       let path = path_of_id id in
       KV.read path >>= function
       | None   -> return_none
@@ -391,12 +391,12 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       String.concat "/" (Wire.path_of_id id) ^ "/data"
 
     let write t id data =
-      printf "Writing Data cookies.\n";
+(*      printf "Writing Data cookies.\n"; *)
       let path = path_of_id id ^ "/" ^ string_of_float (Clock.time ()) in
       KV.write [path, Cstruct.to_string data]
 
     let read t id =
-      printf "Reading Data cookies.\n";
+(*      printf "Reading Data cookies.\n"; *)
       let path = path_of_id id in
       begin KV.directory path >>= fun dirs ->
         Lwt_list.map_s (fun dir ->
@@ -424,8 +424,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       String.concat "/" (Wire.path_of_id id) ^ "/ack"
 
     let write t id params =
-      printf "Writing ACK cookie for %s\n"
-        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+(*      printf "Writing ACK cookie for %s\n"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
       let { ack_number; sequence; syn; fin; pkt } =
         params
       in
@@ -440,8 +440,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       ]
 
     let read t id =
-      printf "Reading ACK cookie for %s\n"
-        (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+(*      printf "Reading ACK cookie for %s\n"
+        (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
       let path = path_of_id id in
       KV.read path >>= function
       | None   -> return_none
@@ -541,8 +541,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     | _ -> return false
 
   let new_server_connection t ~xmit params id pushf =
-    printf "new_server_connection id=%s xmit=%b\n"
-      (Sexplib.Sexp.to_string (Wire.sexp_of_id id)) xmit;
+(*    printf "new_server_connection id=%s xmit=%b\n"
+      (Sexplib.Sexp.to_string (Wire.sexp_of_id id)) xmit; *)
     new_pcb t params id >>= fun (pcb, th, opts) ->
     STATE.tick pcb.state State.Passive_open;
     STATE.tick pcb.state (State.Send_synack params.Syn.tx_isn);
@@ -562,8 +562,8 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
                connection parameters to the app. *)
           Syn.write t id params
       ) else (
-        printf "Adding a new pcb for %s\n"
-          (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+(*        printf "Adding a new pcb for %s\n"
+          (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
         Hashtbl.replace t.listens id (params.Syn.tx_isn, (pushf, (pcb, th)));
         return_unit
       )
@@ -594,7 +594,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
   let process_reset t id =
     if is_not_for_me t id then return_unit
     else (
-    printf "process_reset %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+(*    printf "process_reset %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
     match hashtbl_find t.connects id with
     | Some (wakener, _) ->
       (* URG_TODO: check if RST ack num is valid before it is accepted *)
@@ -646,14 +646,14 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     (* In fast-start mode an app never replies to SYN packets. A proxy
        in fast-start mode replies to all the SYNS. *)
     if (!mode <> `Fast_start_proxy && is_not_for_me t id) then (
-      printf "ignoring SYN packet\n";
+(*      printf "ignoring SYN packet\n"; *)
       return_unit
     ) else (
     begin if !mode = `Fast_start_proxy then is_managed id else return false end
     >>= function
-    | true -> printf "proxy ignoring SYN packet\n"; return_unit
+    | true -> (* printf "proxy ignoring SYN packet\n"; *) return_unit
     | false ->
-    printf "process_syn %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+    (* printf "process_syn %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
     (* XXX: we should bypass that in the proxy case *)
     match t.listeners id.Wire.local_port with
     | Some pushf ->
@@ -672,7 +672,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     )
 
   let process_syn_cookies t id =
-    printf "process_syn_cookies %s"
+    printf "process_syn_cookies %s\n"
       (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
     match t.listeners id.Wire.local_port with
     | None -> return_unit
@@ -690,7 +690,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
   let process_ack t id ~pkt ~ack_number ~sequence ~syn ~fin =
     if is_not_for_me t id then return_unit
     else (
-    printf "process_ack %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+(*    printf "process_ack %s\n" (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
     match hashtbl_find t.listens id with
     | Some (tx_isn, (pushf, newconn)) ->
       if Sequence.(to_int32 (incr tx_isn)) = ack_number then (
@@ -715,10 +715,10 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
     )
 
   let process_ack_cookies t id =
-    printf "process_ack_cookies %s"
-      (Sexplib.Sexp.to_string (Wire.sexp_of_id id));
+(*    printf "process_ack_cookies %s"
+      (Sexplib.Sexp.to_string (Wire.sexp_of_id id)); *)
     Ack.read t id >>= function
-    | None -> printf "No ACK cookies.\n"; return_unit
+    | None -> (* printf "No ACK cookies.\n"; *) return_unit
     | Some { Ack.ack_number; sequence; syn; fin; pkt } ->
       match hashtbl_find t.listens id with
       | Some (tx_isn, (pushf, newconn)) ->
