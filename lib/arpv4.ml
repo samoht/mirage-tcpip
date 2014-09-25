@@ -96,8 +96,10 @@ let rec input t frame =
     (* If we have pending entry, notify the waiters that answer is ready *)
     if Hashtbl.mem t.cache spa then begin
       match Hashtbl.find t.cache spa with
-      |Incomplete cond -> Lwt_condition.broadcast cond sha
-      |_ -> ()
+      |Incomplete cond ->
+        printf "ARP: broacaast condition\n%!";
+        Lwt_condition.broadcast cond sha
+      |_ -> printf "ARP: niet";
     end;
     Hashtbl.replace t.cache spa (Verified sha);
     return_unit
@@ -178,15 +180,15 @@ let query t ip =
   if Hashtbl.mem t.cache ip then (
     match Hashtbl.find t.cache ip with
     | Incomplete cond ->
-      (* printf "ARP query: %s -> [incomplete]\n%!" (Ipaddr.V4.to_string ip); *)
+      printf "ARP query: %s -> [incomplete]\n%!" (Ipaddr.V4.to_string ip);
       Lwt_condition.wait cond
     | Verified mac ->
-      (* printf "ARP query: %s -> %s\n%!"
-         (Ipaddr.V4.to_string ip) (Macaddr.to_string mac); *)
+      printf "ARP query: %s -> %s\n%!"
+        (Ipaddr.V4.to_string ip) (Macaddr.to_string mac);
       return mac
   ) else (
     let cond = Lwt_condition.create () in
-    (* printf "ARP query: %s -> [probe]\n%!" (Ipaddr.V4.to_string ip); *)
+    printf "ARP query: %s -> [probe]\n%!" (Ipaddr.V4.to_string ip);
     Hashtbl.add t.cache ip (Incomplete cond);
     (* First request, so send a query packet *)
     output_probe t ip >>= fun () ->
@@ -196,4 +198,11 @@ let query t ip =
 let create ~get_etherbuf ~output ~get_mac =
   let cache = Hashtbl.create 7 in
   let bound_ips = [] in
+  let add ip mac =
+    let spa = Ipaddr.V4.of_string_exn ip in
+    let sha = Macaddr.of_string_exn mac in
+    Hashtbl.replace cache spa (Verified sha);
+  in
+  add "192.168.2.1" "5e:f9:38:f8:f1:64";
+  add "10.0.1.1"    "5e:f9:38:f8:f1:64";
   { output; get_mac; cache; bound_ips; get_etherbuf }
