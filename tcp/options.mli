@@ -26,6 +26,7 @@ type t =
   | SACK of (int32 * int32) list    (** RFC2018 *)
   | Timestamp of int32 * int32      (** RFC1323 3.2 *)
   | Unknown of int * string         (** RFC793 *)
+with sexp
 
 val marshal: Cstruct.t -> t list -> int
 val unmarshal : Cstruct.t -> t list

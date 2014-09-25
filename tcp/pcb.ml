@@ -17,6 +17,7 @@
 
 open Lwt
 open Printf
+open Sexplib.Std
 
 module Tcp_wire = Wire_structs.Tcp_wire
 
@@ -327,6 +328,7 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
         tx_isn: Sequence.t;
         rx_wnd: int;
         rx_wnd_scaleoffer: int }
+    with sexp
 
     let short_path_of_id id = String.concat "/" (Wire.path_of_id id)
     let path_of_id id = short_path_of_id id ^ "/syn"
@@ -382,8 +384,11 @@ module Make(Ipv4:V1_LWT.IPV4)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM
       ] >>= fun () ->
       read t id >>= function
       | Some p ->
-        assert (params = p);
-        return_unit
+        if (params <> p) then (
+          printf "ERROR: %s\n%!" (Sexplib.Sexp.to_string (sexp_of_t params));
+          fail (Failure "connot parse the syn cookie");
+        ) else
+          return_unit
       | None ->
         printf "cannot read syn cookie\n%!";
         return_unit
