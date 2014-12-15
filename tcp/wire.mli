@@ -23,7 +23,10 @@ type id = {
   dest_ip: Ipaddr.V4.t;         (* Remote IP address *)
   local_port: int;              (* Local TCP port *)
   local_ip: Ipaddr.V4.t;        (* Local IP address *)
-}
+} with sexp
+
+val path_of_id: id -> string list
+val id_of_path: string list -> id
 
 module Make(Ipv4:V1_LWT.IPV4) : sig
   val xmit : ip:Ipv4.t -> id:id ->

@@ -17,7 +17,9 @@
 (* TCP sequence numbers must work with overflow, so this puts them in a
    separate type to make sure they dont get mixed up *)
 
-type t = int32
+open Sexplib.Std
+
+type t = int32 with sexp
 
 (* a < b *)
 let lt a b = (Int32.sub a b) < 0l
@@ -43,9 +45,10 @@ let sub a b = Int32.sub a b
 (* a++ *)
 let incr a = Int32.add a 1l
 
-let compare a b = Int32.compare a b 
+let compare a b = Int32.compare a b
 let of_int32 t = t
 let of_int t = Int32.of_int t
 let to_int32 t = t
 let to_int t = Int32.to_int t
 let to_string t = Printf.sprintf "%lu" t
+let of_string str = Int32.of_string str

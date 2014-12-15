@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-type t
+type t with sexp
 
 (* a < b *)
 val lt : t -> t -> bool
@@ -46,3 +46,4 @@ val of_int: int -> t
 val to_int32: t -> int32
 val to_int: t -> int
 val to_string: t -> string
+val of_string: string -> t

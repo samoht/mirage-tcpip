@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 4dbfc76173b676e113eaca4a43852f4b)
+# DO NOT EDIT (digest: e6890736274e65f0d28a329a1f9d5fbc)
 version = "1.1.6"
 description = "Ethernet, TCP/IPv4 and DHCPv4 library"
 requires = "io-page mirage-types ipaddr cstruct"
@@ -66,7 +66,7 @@ package "tcpv4-socket" (
 package "tcpv4" (
  version = "1.1.6"
  description = "Ethernet, TCP/IPv4 and DHCPv4 library"
- requires = "io-page mirage-types ipaddr cstruct lwt tcpip tcpip.ipv4"
+ requires = "io-page mirage-types ipaddr cstruct sexplib lwt tcpip tcpip.ipv4"
  archive(byte) = "tcpv4.cma"
  archive(byte, plugin) = "tcpv4.cma"
  archive(native) = "tcpv4.cmxa"

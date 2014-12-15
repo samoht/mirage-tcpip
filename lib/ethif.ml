@@ -56,6 +56,7 @@ module Make(Netif : V1_LWT.NETWORK) = struct
     Netif.write t.netif frame
 
   let writev t bufs =
+    Printf.printf "writev\n%!";
     Netif.writev t.netif bufs
 
   let connect netif =
