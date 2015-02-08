@@ -23,7 +23,7 @@
     It also looks for control messages and dispatches them to
     the Rtx queue to ack messages or close channels.
 *)
-module Rx (T:V1_LWT.TIME) : sig
+module Rx (T:V1_LWT.TIME)(C: V1.CLOCK) : sig
 
   type segment
   (** Individual received TCP segment *)

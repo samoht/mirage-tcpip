@@ -15,6 +15,7 @@
  *)
 
 open Lwt
+open Printf
 
 module Tcp_wire = Wire_structs.Tcp_wire
 
@@ -99,13 +100,12 @@ module Make (Ip:V1_LWT.IP) = struct
     Tcp_wire.set_tcp_urg_ptr tcp_frame 0;
     let checksum = Ip.checksum frame (tcp_frame :: datav) in
     Tcp_wire.set_tcp_checksum tcp_frame checksum;
-    (* printf "TCP.xmit checksum %04x %s.%d->%s.%d rst %b syn %b fin %b psh %b seq
-         %lu ack %lu %s datalen %d datafrag %d dataoff %d olen %d\n%!" checksum
-         (ipv4_addr_to_string id.local_ip) id.local_port
-         (ipv4_addr_to_string id.dest_ip) id.dest_port
+    printf "Wire.xmit checksum=%04x %s.%d->%s.%d rst=%b syn=%b fin=%b psh=%b seq=\
+         %lu ack=%lu options=%s datalen=%d datafrag=%d dataoff=%d olen=%d\n%!" checksum
+         (string_of_ip id.local_ip) id.local_port
+         (string_of_ip id.dest_ip) id.dest_port
          rst syn fin psh sequence ack_number (Options.prettyprint options)
          (Cstruct.lenv datav) (List.length datav) data_off options_len;
-    *)
     MProf.Counter.increase count_tcp_to_ip (Cstruct.lenv datav);
     Ip.writev ip frame datav
 end

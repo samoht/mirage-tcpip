@@ -31,7 +31,7 @@ let peek_opt_l seq =
    It also looks for control messages and dispatches them to
    the Rtx queue to ack messages or close channels.
 *)
-module Rx(Time:V1_LWT.TIME) = struct
+module Rx(Time:V1_LWT.TIME) (Clock: V1.CLOCK) = struct
 
   module StateTick = State.Make(Time)
 
@@ -107,6 +107,7 @@ module Rx(Time:V1_LWT.TIME) = struct
      queue, update the window, extract any ready segments into the
      user receive queue, and signal any acks to the Tx queue *)
   let input (q:t) seg =
+    printf "Segment.input time=%.2f\n%!" (Clock.time ());
     (* Check that the segment fits into the valid receive window *)
     let force_ack = ref false in
     if not (Window.valid q.wnd seg.sequence) then return_unit
@@ -368,8 +369,7 @@ module Tx (Time:V1_LWT.TIME) (Clock:V1.CLOCK) = struct
      will not be greater than the transmit window.
   *)
   let output ?(flags=No_flags) ?(options=[]) ~xmit ~rexmit q data =
-    let rexmit = false in
-    printf "output xmit=%b rexmit=%b %s\n" xmit rexmit
+    printf "Segment.output time=%.2f xmit=%b rexmit=%b %s\n%!" (Clock.time ()) xmit rexmit 
       (String.concat "-" (List.map Cstruct.to_string data));
     (* Transmit the packet to the wire
          TODO: deal with transmission soft/hard errors here RFC5461 *)

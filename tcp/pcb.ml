@@ -75,7 +75,7 @@ end
 module Make(Ip:V1_LWT.IP)(Time:V1_LWT.TIME)(Clock:V1.CLOCK)(Random:V1.RANDOM) =
 struct
 
-  module RXS = Segment.Rx(Time)
+  module RXS = Segment.Rx(Time)(Clock)
   module TXS = Segment.Tx(Time)(Clock)
   module ACK = Ack.Immediate
   module UTX = User_buffer.Tx(Time)(Clock)
@@ -371,6 +371,9 @@ struct
           let tx_isn = Sequence.of_string tx_isn in
           let rx_wnd = int_of_string rx_wnd in
           let rx_wnd_scaleoffer = int_of_string rx_wnd_scaleoffer in
+          printf "tx=%d sequence=%ld options=%s tx_isn=%s rx_wnd=%d rx_wnd_sca=%d\n%!"
+           tx_wnd sequence (Options.to_string options) (Sequence.to_string tx_isn)
+           rx_wnd rx_wnd_scaleoffer;
           return
             (Some { tx_wnd; sequence; options; tx_isn; rx_wnd; rx_wnd_scaleoffer })
         with Failure _ ->
