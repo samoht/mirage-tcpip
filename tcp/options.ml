@@ -16,6 +16,7 @@
 
 (* TCP options parsing *)
 
+open Printf
 open Sexplib.Std
 
 exception Bad_option of string
@@ -54,11 +55,15 @@ let check_mss buf =
 let unmarshal buf =
   let i = Cstruct.iter
       (fun buf ->
+         printf "Options.unmarshal-len buf-len=%d\n%!" (Cstruct.len buf);
          match Cstruct.get_uint8 buf 0 with
-         | 0 -> None   (* EOF *)
-         | 1 -> Some 1 (* NOP *)
+         | 0 -> printf "Options.unmarshal-len: kind=0 len=None\n%!"; None   (* EOF *)
+         | 1 -> printf "Options.unmarshal-len: kind=1 len=Some 1\n%!"; Some 1 (* NOP *)
          | n ->
-           try Some (Cstruct.get_uint8 buf 1)
+           try
+             let len = Cstruct.get_uint8 buf 1 in
+             printf "Options.unmarshal-len: kind=%d len=Some %d\n%!" n len;
+             Some len
            with Invalid_argument _ -> report_error n
       )
       (fun buf ->
