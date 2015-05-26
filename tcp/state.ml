@@ -17,6 +17,8 @@
 open Lwt
 open Printf
 
+let log fmt = printf ("STATE: " ^^ fmt ^^ "\n%!")
+
 type action =
   | Passive_open
   | Recv_rst
@@ -90,10 +92,12 @@ module Make(Time:V1_LWT.TIME) = struct
   let time_wait_time = (* 30. *) 2.
 
   let rec finwait2timer t count timeout =
+    log "finwait2timer %.02f" timeout;
     Time.sleep timeout
     >>= fun () ->
     match t.state with
     | Fin_wait_2 i ->
+      log "finwait2timer: Fin_wait_2";
       if i = count then begin
         t.state <- Closed;
         t.on_close ();
@@ -101,18 +105,21 @@ module Make(Time:V1_LWT.TIME) = struct
       end else begin
         finwait2timer t i timeout
       end
-    | _ ->
+    | s ->
+      log "finwait2timer: %s" (string_of_tcpstate s);
       return_unit
 
   let timewait t twomsl =
+    log "timewait %.02f" twomsl;
     Time.sleep twomsl
     >>= fun () ->
     t.state <- Closed;
+    log "timewait on_close";
     t.on_close ();
     return_unit
 
   let tick t (i:action) =
-    (* printf "%s  - %s ->  " (to_string t) (action_to_string i); *)
+    printf "%s  - %s ->  " (to_string t) (string_of_action i); 
     let diffone x y = Sequence.incr y = x in
     let tstr s (i:action) =
       match s, i with
@@ -149,5 +156,5 @@ module Make(Time:V1_LWT.TIME) = struct
       | x, _ -> x
     in
     t.state <- tstr t.state i
-    (* ;  printf "%s\n%!" (to_string t) *)
+  ;  printf "%s\n%!" (to_string t)
 end

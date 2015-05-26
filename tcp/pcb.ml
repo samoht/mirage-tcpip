@@ -18,8 +18,9 @@
 open Lwt
 open Printf
 
-module Tcp_wire = Wire_structs.Tcp_wire
+let log fmt = printf ("TCP.PCB: " ^^ fmt ^^ "\n%!")
 
+module Tcp_wire = Wire_structs.Tcp_wire
 cstruct pseudo_header {
     uint32_t src;
     uint32_t dst;
@@ -67,6 +68,10 @@ struct
     connects: (WIRE.id, (connection_result Lwt.u * Sequence.t)) Hashtbl.t;
   }
 
+  let stats t =
+    sprintf "[%d channels / %d listens / %d connects]"
+      (Hashtbl.length t.channels) (Hashtbl.length t.listens) (Hashtbl.length t.connects)
+
   let ip { ip; _ } = ip
 
   let verify_checksum _ _ _ = true
@@ -100,6 +105,7 @@ struct
 
     (* Queue up an immediate close segment *)
     let close pcb =
+      log "TX.close";
       match State.state pcb.state with
       | State.Established | State.Close_wait ->
         UTX.wait_for_flushed pcb.utx >>= fun () ->
@@ -107,7 +113,9 @@ struct
          STATE.tick pcb.state (State.Send_fin (Window.tx_nxt wnd));
          TXS.output ~flags:Segment.Fin pcb.txq []
         )
-      | _ -> return_unit
+      | _ ->
+        log "TX.close: skipping, state=%s" (State.to_string pcb.state);
+        return_unit
 
     (* Thread that transmits ACKs in response to received packets,
        thus telling the other side that more can be sent, and
@@ -216,19 +224,20 @@ struct
 
   let clearpcb t id tx_isn =
     (* TODO: add more info to log msgs *)
+    log "removing pcb from tables: %s" (stats t);
     match hashtbl_find t.channels id with
     | Some _ ->
-      (* printf "TCP: removing pcb from tables\n%!";*)
+      log "removed from channels!!";
       Hashtbl.remove t.channels id
     | None ->
       match hashtbl_find t.listens id with
       | Some (isn, _) ->
         if isn = tx_isn then (
-          printf "TCP: removing incomplete listen pcb\n%!";
+          log "removing incomplete listen pcb";
           Hashtbl.remove t.listens id
         )
       | None ->
-        printf "TCP: error in removing pcb - no such connection\n%!"
+        log "error in removing pcb - no such connection"
 
   let pcb_allocs = ref 0
   let th_allocs = ref 0
@@ -314,6 +323,7 @@ struct
     return (pcb, th, opts)
 
   let new_server_connection t params id pushf =
+    log "new-server-connection %s" (stats t);
     new_pcb t params id >>= fun (pcb, th, opts) ->
     STATE.tick pcb.state State.Passive_open;
     STATE.tick pcb.state (State.Send_synack params.tx_isn);
@@ -325,6 +335,7 @@ struct
     return (pcb, th)
 
   let new_client_connection t params id ack_number =
+    log "new-client-connection %s" (stats t);
     let tx_isn = params.tx_isn in
     let params = { params with tx_isn = Sequence.incr tx_isn } in
     new_pcb t params id >>= fun (pcb, th, _) ->
@@ -338,6 +349,7 @@ struct
     return (pcb, th)
 
   let process_reset t id =
+    log "process-reset %s" (stats t);
     match hashtbl_find t.connects id with
     | Some (wakener, _) ->
       (* URG_TODO: check if RST ack num is valid before it is accepted *)
@@ -356,6 +368,7 @@ struct
         return_unit
 
   let process_synack t id ~pkt ~ack_number ~sequence ~options ~syn ~fin =
+    log "process-synack %s" (stats t);
     match hashtbl_find t.connects id with
     | Some (wakener, tx_isn) ->
       if Sequence.(to_int32 (incr tx_isn)) = ack_number then (
@@ -382,6 +395,7 @@ struct
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
   let process_syn t id ~listeners ~pkt ~ack_number ~sequence ~options ~syn ~fin =
+    log "process-syn %s" (stats t);
     match listeners id.WIRE.local_port with
     | Some pushf ->
       let tx_isn = Sequence.of_int ((Random.int 65535) + 0x1AFE0000) in
@@ -398,6 +412,7 @@ struct
       Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
   let process_ack t id ~pkt ~ack_number ~sequence ~syn ~fin =
+    log "process-ack %s" (stats t);
     match hashtbl_find t.listens id with
     | Some (tx_isn, (pushf, newconn)) ->
       if Sequence.(to_int32 (incr tx_isn)) = ack_number then (
@@ -417,6 +432,13 @@ struct
         (* No RST because we are trying to connect on this id *)
         return_unit
       | None ->
+        if fin then match hashtbl_find t.channels id with
+          | Some (pcb, _) ->
+            let sequence = Sequence.of_int32 sequence in
+            STATE.tick pcb.state (State.Recv_finack sequence);
+            return_unit
+          | None -> return_unit
+        else
         (* ACK but no matching pcb and no listen - send RST *)
         Tx.send_rst t id ~sequence ~ack_number ~syn ~fin
 
@@ -438,12 +460,13 @@ struct
       | false, true  -> process_ack t id ~pkt ~ack_number ~sequence ~syn ~fin
       | false, false ->
         (* What the hell is this packet? No SYN,ACK,RST *)
+        log "input-no-pcb %s: unknown packet" (stats t);
         return_unit
 
   (* Main input function for TCP packets *)
   let input t ~listeners ~src ~dst data =
     match verify_checksum src dst data with
-    | false -> printf "RX.input: checksum error\n%!"; return_unit
+    | false -> log "RX.input: checksum error"; return_unit
     | true ->
       let source_port = Tcp_wire.get_tcp_src_port data in
       let dest_port = Tcp_wire.get_tcp_dst_port data in
@@ -563,7 +586,7 @@ struct
     let window = 5840 in
     let th, wakener = MProf.Trace.named_task "TCP connect" in
     if Hashtbl.mem t.connects id then
-      printf "WARNING: connection already being attempted\n%!";
+      log "WARNING: connection already being attempted";
     Hashtbl.replace t.connects id (wakener, tx_isn);
     Tx.send_syn t id ~tx_isn ~options ~window >>= fun () ->
     let _ = connecttimer t id tx_isn options window 0 in
