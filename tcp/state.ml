@@ -17,7 +17,7 @@
 open Lwt
 open Printf
 
-let log fmt = printf ("STATE: " ^^ fmt ^^ "\n%!")
+let log fmt = printf ("TCP.State: " ^^ fmt ^^ "\n%!")
 
 type action =
   | Passive_open
@@ -119,7 +119,7 @@ module Make(Time:V1_LWT.TIME) = struct
     return_unit
 
   let tick t (i:action) =
-    printf "%s  - %s ->  " (to_string t) (string_of_action i); 
+    printf "TCP.State: %s  - %s ->  " (to_string t) (string_of_action i);
     let diffone x y = Sequence.incr y = x in
     let tstr s (i:action) =
       match s, i with
