@@ -16,6 +16,8 @@
 
 open Lwt
 
+let log fmt = Printf.printf ("TCP.Tcptimer: " ^^ fmt ^^ "\n%!")
+
 type tr =
   | Stoptimer
   | Continue of Sequence.t
@@ -33,14 +35,18 @@ module Make(Time:V1_LWT.TIME) = struct
     {period; expire; running}
 
   let rec timerloop t s =
+    log "timerloop";
     Time.sleep t.period >>= fun () ->
     match t.expire s with
     | Stoptimer ->
+      log "timerloop: stoptimer";
       t.running <- false;
       return_unit
     | Continue d ->
+      log "timerloop: continuer";
       timerloop t d
     | ContinueSetPeriod (p, d) ->
+      log "timerloop: coontinuesetperiod";
       t.period <- p;
       timerloop t d
 
