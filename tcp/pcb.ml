@@ -18,8 +18,8 @@
 open Lwt
 open Printf
 
-let debug = Log.create "TCP.PCB"
-let info  = Log.create ~enabled:true "TCP.PCB"
+let debug = Log.create "PCB"
+let info  = Log.create ~enabled:true "PCB"
 
 module Tcp_wire = Wire_structs.Tcp_wire
 cstruct pseudo_header {

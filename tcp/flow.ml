@@ -16,6 +16,8 @@
 
 open Lwt
 
+let debug = Log.create "Flow"
+
 module Make(IP:V1_LWT.IP)(TM:V1_LWT.TIME)(C:V1.CLOCK)(R:V1.RANDOM) = struct
 
   module Pcb = Pcb.Make(IP)(TM)(C)(R)
@@ -70,12 +72,12 @@ module Make(IP:V1_LWT.IP)(TM:V1_LWT.TIME)(C:V1.CLOCK)(R:V1.RANDOM) = struct
   let create_connection tcp (daddr, dport) =
     Pcb.connect tcp ~dest_ip:daddr ~dest_port:dport >>= function
     | `Timeout ->
-      (* Printf.printf "Failed to connect to %s:%d\n%!" *)
-        (* (Ipaddr.V4.to_string daddr) dport; *)
+      Log.f debug  "Failed to connect to %s:%d\n%!"
+        (Ipaddr.to_string (IP.to_uipaddr daddr)) dport;
       return (`Error `Timeout)
     | `Rst ->
-      (* Printf.printf "Refused connection to %s:%d\n%!" *)
-        (* (Ipaddr.V4.to_string daddr) dport; *)
+      Log.f debug "Refused connection to %s:%d\n%!"
+        (Ipaddr.to_string (IP.to_uipaddr daddr)) dport;
       return (`Error `Refused)
     | `Ok (fl, _) ->
       return (`Ok fl)
