@@ -29,7 +29,7 @@ type action =
   | Send_fin of Sequence.t
   | Timeout
 
-val string_of_action: action -> string
+val pp_action: Format.formatter -> action -> unit
 
 type tcpstate =
   | Closed
@@ -44,7 +44,7 @@ type tcpstate =
   | Closing of Sequence.t
   | Time_wait
 
-val string_of_tcpstate : tcpstate -> string
+val pp_tcpstate : Format.formatter -> tcpstate -> unit
 
 type close_cb = unit -> unit
 
@@ -57,7 +57,7 @@ type t = {
 val state : t -> tcpstate
 val t : on_close:close_cb -> t
 
-val to_string: t -> string
+val pp: Format.formatter -> t -> unit
 
 module Make(Time : V1_LWT.TIME) : sig
   val fin_wait_2_time : float
