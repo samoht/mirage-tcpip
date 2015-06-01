@@ -69,11 +69,10 @@ struct
   }
 
   let pp_stats fmt t =
-    Format.fprintf fmt "[channels=%d  listens=%d connects=%d|%a]"
+    Format.fprintf fmt "[channels=%d  listens=%d connects=%d]"
       (Hashtbl.length t.channels)
       (Hashtbl.length t.listens)
       (Hashtbl.length t.connects)
-      Stats.pp (Stats.create ())
 
   let ip { ip; _ } = ip
 
